@@ -1,4 +1,4 @@
-// 特訓部屋: レベルアップ演出つきのゲーム風To Doリスト
+// 特訓部屋: レベルアップ演出つきのゲーム風To Do。定期タスクは敵のHPを削って討伐する
 import { getAllTasks, putTask, deleteTask } from '../db.js';
 import {
   el, uid, fmtDate, haptic, toast, confirmDialog,
@@ -6,7 +6,7 @@ import {
 } from '../util.js';
 import { spriteSVG } from '../sprites.js';
 
-const XP_PER_TASK = 15;
+const XP_PER_TASK = 15;   // 1回達成ごとに得るEXP
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 // ---- プレイヤー(レベル・経験値) ----
@@ -16,7 +16,7 @@ export function loadPlayer() {
 }
 function savePlayer(p) { localStorage.setItem('qd-player', JSON.stringify(p)); }
 
-function needFor(level) { return 30 + (level - 1) * 15; } // Lv n → n+1 に必要なXP
+function needFor(level) { return 30 + (level - 1) * 15; }
 export function levelFromXp(xp) {
   let level = 1, rest = xp;
   while (rest >= needFor(level)) { rest -= needFor(level); level++; }
@@ -35,31 +35,53 @@ export function titleFor(level) {
 function dkey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+function startOfWeek(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - x.getDay()); return x; }
+
+// 回数タイプ(週にn回/月にn回)か?
+function isCountRecur(recur) { return !!recur && (recur.type === 'weekN' || recur.type === 'monthN'); }
+
 function periodKey(recur, now = new Date()) {
   if (!recur) return null;
   if (recur.type === 'daily') return 'd' + dkey(now);
   if (recur.type === 'weekly') {
     const x = new Date(now); x.setHours(0, 0, 0, 0);
-    x.setDate(x.getDate() - ((x.getDay() - recur.day + 7) % 7)); // 直近の指定曜日
+    x.setDate(x.getDate() - ((x.getDay() - recur.day + 7) % 7));
     return 'w' + dkey(x);
   }
-  return `m${now.getFullYear()}-${now.getMonth() + 1}`; // 月初リセット
+  if (recur.type === 'weekN') return 'W' + dkey(startOfWeek(now));       // 今週(日曜始まり)
+  if (recur.type === 'monthN') return `N${now.getFullYear()}-${now.getMonth() + 1}`; // 今月
+  return `m${now.getFullYear()}-${now.getMonth() + 1}`;                  // 月初リセット
 }
+
+// いまの周期における達成回数
+function currentCount(task) {
+  const key = periodKey(task.recur);
+  if (!task.progress || task.progress.key !== key) return 0;
+  return task.progress.count;
+}
+
 function recurLabel(recur) {
   if (!recur) return '1回きり';
   if (recur.type === 'daily') return '毎日';
   if (recur.type === 'weekly') return `毎週${WEEKDAYS[recur.day]}曜`;
+  if (recur.type === 'weekN') return `週に${recur.target}回`;
+  if (recur.type === 'monthN') return `月に${recur.target}回`;
   return '毎月(月初〜)';
 }
 function nextLabel(recur) {
   if (!recur) return '';
   if (recur.type === 'daily') return 'あした ふたたび出現';
   if (recur.type === 'weekly') return `来週${WEEKDAYS[recur.day]}曜に ふたたび出現`;
+  if (recur.type === 'weekN') return '来週リセットして再出現';
+  if (recur.type === 'monthN') return '来月リセットして再出現';
   return '来月1日に ふたたび出現';
 }
-function isPending(task) {
-  if (!task.recur) return !task.doneAt;
-  return task.lastDoneKey !== periodKey(task.recur);
+
+export function isPending(task) {
+  const r = task.recur;
+  if (!r) return !task.doneAt;
+  if (isCountRecur(r)) return currentCount(task) < r.target;
+  return task.lastDoneKey !== periodKey(r);
 }
 
 export async function renderTraining(root) {
@@ -72,6 +94,14 @@ export async function renderTraining(root) {
     el('summary', {}, 'クリアした特訓'),
     doneList
   );
+
+  function addXp(delta) {
+    const p = loadPlayer();
+    const before = levelFromXp(p.xp).level;
+    p.xp = Math.max(0, p.xp + delta);
+    savePlayer(p);
+    return { before, after: levelFromXp(p.xp).level };
+  }
 
   function paintHero(animateGain) {
     const p = loadPlayer();
@@ -93,6 +123,17 @@ export async function renderTraining(root) {
     );
   }
 
+  function levelUpBanner(after) {
+    haptic([30, 60, 30, 60, 60]);
+    rainConfetti(['#ffcd75', '#73eff7', '#a7f070', '#f4f4f4', '#ff5d8f'], 70);
+    showBanner({
+      iconHtml: `<div class="levelup-hero">${spriteSVG('hero', { size: 100 })}</div>`,
+      text: 'LEVEL UP!',
+      sub: `Lv.${after} ${titleFor(after)} になった!`,
+      duration: 2600
+    });
+  }
+
   function paintLists() {
     const pending = tasks.filter(isPending);
     const done = tasks.filter((t) => !isPending(t));
@@ -105,19 +146,17 @@ export async function renderTraining(root) {
     for (const task of pending) pendingList.append(taskCard(task));
 
     doneList.innerHTML = '';
-    if (done.length === 0) {
-      doneList.append(el('div', { class: 'dojo-empty small' }, 'まだない'));
-    }
+    if (done.length === 0) doneList.append(el('div', { class: 'dojo-empty small' }, 'まだない'));
     for (const task of done.slice().reverse()) doneList.append(doneCard(task));
     doneWrap.querySelector('summary').textContent = `クリアした特訓 (${done.length})`;
   }
 
+  // ---- 未クリアのカード ----
   function taskCard(task) {
+    if (isCountRecur(task.recur)) return countCard(task);
+
     const card = el('div', { class: 'dojo-task pixel-panel' },
-      el('button', {
-        class: 'dojo-task-body',
-        onclick: () => openTaskSheet(task)
-      },
+      el('button', { class: 'dojo-task-body', onclick: () => openTaskSheet(task) },
         el('span', { class: 'dojo-task-icon', html: spriteSVG('rock', { size: 30 }) }),
         el('span', { class: 'dojo-task-name' }, task.name),
         el('span', { class: `dojo-recur ${task.recur ? 'on' : ''}` }, recurLabel(task.recur))
@@ -125,29 +164,68 @@ export async function renderTraining(root) {
       el('button', {
         class: 'dojo-complete',
         'aria-label': 'クリアする',
-        onclick: (e) => { e.stopPropagation(); completeTask(task, card); }
+        onclick: (e) => { e.stopPropagation(); completeSingle(task, card); }
+      }, '⚔')
+    );
+    return card;
+  }
+
+  // ---- 回数タイプ: 敵のHPゲージ ----
+  function countCard(task) {
+    const target = task.recur.target;
+    const count = currentCount(task);
+    const remaining = target - count;
+
+    const enemy = el('span', { class: 'dojo-enemy', html: spriteSVG('slime', { size: 34 }) });
+    const hpBar = el('div', { class: 'hp-bar' },
+      Array.from({ length: target }, (_, i) => el('span', { class: i < remaining ? 'hp' : 'gone' }))
+    );
+    const hpLabel = el('span', { class: 'hp-label' }, `${count}/${target}`);
+
+    const card = el('div', { class: 'dojo-task count pixel-panel' },
+      el('button', { class: 'dojo-task-body', onclick: () => openTaskSheet(task) },
+        enemy,
+        el('div', { class: 'dojo-count-info' },
+          el('div', { class: 'dojo-count-top' },
+            el('span', { class: 'dojo-task-name' }, task.name),
+            el('span', { class: 'dojo-recur on' }, recurLabel(task.recur))
+          ),
+          el('div', { class: 'hp-row' }, hpBar, hpLabel)
+        )
+      ),
+      el('button', {
+        class: 'dojo-complete atk',
+        'aria-label': '1回達成した',
+        onclick: (e) => { e.stopPropagation(); attackCount(task, card, enemy, hpBar, hpLabel); }
       }, '⚔')
     );
     return card;
   }
 
   function doneCard(task) {
+    const isCount = isCountRecur(task.recur);
     return el('div', { class: 'dojo-task done' },
       el('span', { class: 'dojo-task-icon', html: spriteSVG('starGold', { size: 22 }) }),
       el('div', { class: 'dojo-task-name' },
         task.name,
         el('div', { class: 'dojo-done-meta' },
-          `✓ ${fmtDate(task.doneAt || Date.now())}` + (task.recur ? ` ・ ${nextLabel(task.recur)}` : '')
+          `✓ ${isCount ? `${task.recur.target}回討伐` : fmtDate(task.doneAt || Date.now())}` +
+          (task.recur ? ` ・ ${nextLabel(task.recur)}` : '')
         )
       ),
       el('button', {
         class: 'dojo-undo',
         'aria-label': 'クリアを取り消す',
         onclick: async () => {
-          if (task.recur) task.lastDoneKey = null; else task.doneAt = null;
-          const p = loadPlayer();
-          p.xp = Math.max(0, p.xp - XP_PER_TASK);
-          savePlayer(p);
+          if (isCount) {
+            const key = periodKey(task.recur);
+            task.progress = { key, count: Math.max(0, task.recur.target - 1) };
+          } else if (task.recur) {
+            task.lastDoneKey = null;
+          } else {
+            task.doneAt = null;
+          }
+          addXp(-XP_PER_TASK);
           await putTask(task);
           paintHero(false);
           paintLists();
@@ -156,44 +234,69 @@ export async function renderTraining(root) {
     );
   }
 
-  async function completeTask(task, card) {
-    const p = loadPlayer();
-    const before = levelFromXp(p.xp).level;
-    p.xp += XP_PER_TASK;
-    savePlayer(p);
-    const after = levelFromXp(p.xp).level;
-
+  // ---- 単発クリア(1回きり/毎日/毎週曜日/月初) ----
+  async function completeSingle(task, card) {
+    const { before, after } = addXp(XP_PER_TASK);
     task.doneAt = Date.now();
     if (task.recur) task.lastDoneKey = periodKey(task.recur);
     task.doneCount = (task.doneCount || 0) + 1;
     await putTask(task);
 
     haptic([16, 40, 24]);
-    // 斬撃エフェクト + EXPポップ
     card.classList.add('slashed');
-    const pop = el('div', { class: 'exp-pop' }, `+${XP_PER_TASK} EXP`);
-    card.append(el('div', { class: 'slash-fx' }), pop);
+    card.append(el('div', { class: 'slash-fx' }), el('div', { class: 'exp-pop' }, `+${XP_PER_TASK} EXP`));
 
     setTimeout(() => {
       paintHero(true);
       paintLists();
-      if (after > before) {
-        haptic([30, 60, 30, 60, 60]);
-        rainConfetti(['#ffcd75', '#73eff7', '#a7f070', '#f4f4f4', '#ff5d8f'], 70);
-        showBanner({
-          iconHtml: `<div class="levelup-hero">${spriteSVG('hero', { size: 100 })}</div>`,
-          text: 'LEVEL UP!',
-          sub: `Lv.${after} ${titleFor(after)} になった!`,
-          duration: 2600
-        });
-      }
+      if (after > before) levelUpBanner(after);
     }, 650);
+  }
+
+  // ---- 回数タイプの攻撃(1回達成 → HPを1削る) ----
+  async function attackCount(task, card, enemy, hpBar, hpLabel) {
+    const target = task.recur.target;
+    const key = periodKey(task.recur);
+    if (!task.progress || task.progress.key !== key) task.progress = { key, count: 0 };
+    task.progress.count++;
+    const count = task.progress.count;
+    const defeated = count >= target;
+    if (defeated) { task.doneAt = Date.now(); task.doneCount = (task.doneCount || 0) + 1; }
+    const { before, after } = addXp(XP_PER_TASK);
+    await putTask(task);
+
+    haptic(defeated ? [20, 50, 20, 50, 40] : [14, 30]);
+
+    // HPゲージを1マス削る + 敵ヒット演出
+    const cells = hpBar.querySelectorAll('span');
+    const remaining = Math.max(0, target - count);
+    cells.forEach((c, i) => { c.className = i < remaining ? 'hp' : 'gone'; });
+    hpLabel.textContent = `${Math.min(count, target)}/${target}`;
+    enemy.classList.remove('hit'); void enemy.offsetWidth; enemy.classList.add('hit');
+
+    const slash = el('div', { class: 'slash-fx mini' });
+    const pop = el('div', { class: 'exp-pop' }, `+${XP_PER_TASK} EXP`);
+    card.append(slash, pop);
+    setTimeout(() => { slash.remove(); pop.remove(); }, 950);
+
+    paintHero(true);
+
+    if (defeated) {
+      enemy.classList.add('dead');
+      toast('討伐! 敵をたおした!');
+      setTimeout(() => {
+        card.classList.add('slashed');
+        setTimeout(() => { paintLists(); if (after > before) levelUpBanner(after); }, 600);
+      }, 500);
+    } else if (after > before) {
+      levelUpBanner(after);
+    }
   }
 
   // ---- タスク追加/編集シート ----
   function openTaskSheet(task = null) {
     const isNew = !task;
-    const draft = task || { id: uid(), name: '', recur: null, createdAt: Date.now(), doneAt: null, lastDoneKey: null, doneCount: 0 };
+    const draft = task || { id: uid(), name: '', recur: null, createdAt: Date.now(), doneAt: null, lastDoneKey: null, doneCount: 0, progress: null };
     let recur = draft.recur ? { ...draft.recur } : null;
 
     const nameInput = el('input', { type: 'text', maxlength: 60, placeholder: 'れい: 腹筋30回 / 週報を書く', value: draft.name });
@@ -201,33 +304,54 @@ export async function renderTraining(root) {
 
     function paintRecur() {
       recurBox.innerHTML = '';
+      const type = recur?.type ?? null;
       const opts = [
         { key: null, label: '1回きり' },
         { key: 'daily', label: '毎日' },
-        { key: 'weekly', label: '毎週' },
-        { key: 'monthly', label: '月初' }
+        { key: 'weekly', label: '毎週(曜日)' },
+        { key: 'weekN', label: '週にn回' },
+        { key: 'monthly', label: '月初' },
+        { key: 'monthN', label: '月にn回' }
       ];
       recurBox.append(el('div', { class: 'recur-row' },
         opts.map((o) => el('button', {
-          class: `seg ${(recur?.type ?? null) === o.key ? 'on' : ''}`,
+          class: `seg ${type === o.key ? 'on' : ''}`,
           onclick: () => {
             recur = o.key === null ? null
               : o.key === 'weekly' ? { type: 'weekly', day: recur?.day ?? 1 }
+              : o.key === 'weekN' ? { type: 'weekN', target: recur?.target ?? 3 }
+              : o.key === 'monthN' ? { type: 'monthN', target: recur?.target ?? 10 }
               : { type: o.key };
             paintRecur();
           }
         }, o.label))
       ));
-      if (recur?.type === 'weekly') {
+
+      if (type === 'weekly') {
         recurBox.append(el('div', { class: 'recur-row weekdays' },
           WEEKDAYS.map((w, i) => el('button', {
             class: `seg day ${recur.day === i ? 'on' : ''}`,
             onclick: () => { recur.day = i; paintRecur(); }
           }, w))
         ));
+      } else if (type === 'weekN' || type === 'monthN') {
+        const max = type === 'weekN' ? 7 : 31;
+        recurBox.append(el('div', { class: 'recur-count' },
+          el('span', {}, type === 'weekN' ? '週に' : '月に'),
+          el('div', { class: 'habit-target' },
+            el('button', { onclick: () => { if (recur.target > 1) { recur.target--; paintRecur(); } } }, '−'),
+            el('span', { class: 'habit-target-val' }, String(recur.target)),
+            el('button', { onclick: () => { if (recur.target < max) { recur.target++; paintRecur(); } } }, '+')
+          ),
+          el('span', {}, '回 達成でクリア')
+        ));
       }
+
       recurBox.append(el('div', { class: 'field-help' },
-        recur ? `${recurLabel(recur)} にリストへ出現する。` : 'クリアすると完了済みへ移動する。'));
+        isCountRecur(recur)
+          ? `${recurLabel(recur)}が目標。1回ごとに⚔を押して 敵のHPを削り、${recur.target}回で討伐(クリア)。`
+          : recur ? `${recurLabel(recur)} にリストへ出現する。`
+          : 'クリアすると完了済みへ移動する。'));
     }
     paintRecur();
 
@@ -245,7 +369,10 @@ export async function renderTraining(root) {
           const name = nameInput.value.trim();
           if (!name) { toast('メニュー名を入力してね'); nameInput.focus(); return; }
           draft.name = name;
+          const wasCount = isCountRecur(draft.recur);
           draft.recur = recur;
+          // 回数タイプに切り替えた/目標が変わった場合はHP進捗を初期化
+          if (isCountRecur(recur) && (!wasCount || !draft.progress)) draft.progress = { key: periodKey(recur), count: 0 };
           await putTask(draft);
           if (isNew) tasks.push(draft);
           closeSheet();
@@ -275,7 +402,7 @@ export async function renderTraining(root) {
     el('div', { class: 'dojo' },
       el('div', { class: 'wizard-top' },
         el('button', { class: 'icon-btn', 'aria-label': 'ホームへもどる', onclick: () => { location.hash = ''; } }, '◀'),
-        el('h1', { class: 'wizard-title' }, '特訓部屋'),
+        el('h1', { class: 'wizard-title' }, '特訓部屋')
       ),
       heroPanel,
       el('div', { class: 'dojo-section-title' }, '▼ 本日の特訓メニュー'),

@@ -222,6 +222,20 @@ const GRIDS = {
       '....DDD....'
     ]
   },
+  // 特訓の敵スライム(HPを削って討伐する)
+  slime: {
+    colors: { D: '#0f3a1e', B: '#38b764', L: '#7bed9f', W: '#f4f4f4', K: '#0a1a10' },
+    grid: [
+      '...BBBB...',
+      '..BLLLBB..',
+      '.BLLBBBBB.',
+      'BBBBBBBBBB',
+      'BWKBBBBWKB',
+      'BBBBBBBBBB',
+      'BBKKBBKKBB',
+      '.DBBBBBBD.'
+    ]
+  },
   // スタンプ(習慣達成の判子)赤いハンコ風
   stamp: {
     colors: { R: '#d1324a', r: '#ff5566', W: '#fff0f0', D: '#6e1622' },
