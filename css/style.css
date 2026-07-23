@@ -1037,6 +1037,7 @@ input, textarea {
 .hp-gauge span.hp-on { background: var(--c-green); box-shadow: inset 0 -3px 0 #1f6f3a; }
 .hp-gauge.low span.hp-on { background: var(--c-gold); box-shadow: inset 0 -3px 0 var(--c-amber); }
 .hp-gauge.crit span.hp-on { background: var(--c-red); box-shadow: inset 0 -3px 0 #7a2436; }
+.dojo-hp-tag { font-size: 10px; color: var(--c-grey); flex-shrink: 0; }
 .dojo-hp-pct { font-size: 11px; color: var(--c-lime); flex-shrink: 0; min-width: 38px; text-align: right; }
 .dojo-hp-pct.low { color: var(--c-gold); }
 .dojo-hp-pct.crit { color: var(--c-red); }
@@ -1072,6 +1073,30 @@ input, textarea {
   50% { transform: scale(.85) rotate(4deg); }
   100% { transform: scale(1) rotate(0); opacity: 1; }
 }
+
+/* 無傷継続 → 金の宝箱 */
+.streak-row {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 2px solid rgba(86, 108, 134, .35);
+}
+.streak-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.streak-title { font-size: 11px; color: var(--c-gold); letter-spacing: 1px; flex: 1; }
+.streak-count { font-size: 11px; color: var(--c-amber); }
+.streak-bar { height: 12px; }
+.streak-bar span.gold-on { background: var(--c-gold); box-shadow: inset 0 -3px 0 var(--c-amber); }
+.streak-text { font-size: 10px; color: var(--c-grey); margin-top: 5px; text-align: right; }
+.gold-chest-win {
+  animation: gold-chest-pop .8s cubic-bezier(.2, 1.5, .4, 1);
+  filter: drop-shadow(0 0 20px rgba(255, 205, 117, .95));
+}
+@keyframes gold-chest-pop {
+  0% { transform: scale(0) rotate(-20deg); }
+  60% { transform: scale(1.2) rotate(6deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+.dojo-goldchest { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; vertical-align: middle; }
+.dojo-goldchest b { font-size: 11px; color: var(--c-gold); }
 
 /* ---------- 特訓部屋 ---------- */
 .dojo {

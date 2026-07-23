@@ -76,7 +76,10 @@ export async function renderHome(root) {
     el('div', { class: 'dojo-entry-info' },
       el('div', { class: 'dojo-entry-title' }, '特訓部屋 ',
         el('span', { class: 'dojo-entry-lv' }, `Lv.${level}`),
-        el('span', { class: 'dojo-title-tag' }, titleFor(level))
+        el('span', { class: 'dojo-title-tag' }, titleFor(level)),
+        (player.goldChests > 0)
+          ? el('span', { class: 'dojo-goldchest', html: spriteSVG('chestClosed', { size: 16 }) + `<b>×${player.goldChests}</b>` })
+          : null
       ),
       el('div', { class: 'pixbar xp-bar small' },
         Array.from({ length: blocks }, (_, i) => el('span', { class: i < filled ? 'xp-on' : '' }))

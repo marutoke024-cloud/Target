@@ -9,14 +9,18 @@ import { spriteSVG } from '../sprites.js';
 const XP_PER_TASK = 15;   // 1回達成ごとに得るEXP
 const HP_HEAL = 10;       // 週/月の目標達成で回復するHP%
 const HP_DMG = 20;        // 週/月の目標未達成で受けるダメージHP%
+const NO_DMG_GOAL_DAYS = 182; // 約半年ノーダメージで金の宝箱
+const DAY_MS = 86400000;
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
-// ---- プレイヤー(レベル・経験値・HP) ----
+// ---- プレイヤー(レベル・経験値・HP・無傷継続) ----
 export function loadPlayer() {
   let p;
   try { p = JSON.parse(localStorage.getItem('qd-player')) || {}; } catch { p = {}; }
   if (typeof p.xp !== 'number') p.xp = 0;
   if (typeof p.hp !== 'number') p.hp = 100;
+  if (typeof p.goldChests !== 'number') p.goldChests = 0;
+  if (typeof p.noDmgSince !== 'number') p.noDmgSince = Date.now();
   return p;
 }
 function savePlayer(p) { localStorage.setItem('qd-player', JSON.stringify(p)); }
@@ -124,13 +128,33 @@ export async function evaluateHp(tasks) {
     if (taskChanged) await putTask(task);
   }
 
-  if (hpChanged) { p.hp = hp; savePlayer(p); }
+  if (hpChanged) {
+    p.hp = hp;
+    p.noDmgSince = Date.now(); // ダメージで無傷継続はリセット
+    savePlayer(p);
+  }
   return events;
+}
+
+// 半年ノーダメージ達成で金の宝箱を付与する
+export function checkGoldChest(tasks) {
+  const p = loadPlayer();
+  const hasRecurCount = tasks.some((t) => isCountRecur(t.recur));
+  if (!hasRecurCount) return false;
+  if (Date.now() - p.noDmgSince >= NO_DMG_GOAL_DAYS * DAY_MS) {
+    p.goldChests += 1;
+    p.noDmgSince = Date.now(); // 次の半年へ
+    savePlayer(p);
+    return true;
+  }
+  return false;
 }
 
 export async function renderTraining(root) {
   let tasks = await getAllTasks();
-  const hpEvents = await evaluateHp(tasks); // 周期をまたいだ未達成のダメージ精算
+  savePlayer(loadPlayer()); // 無傷継続などの初期フィールドを永続化
+  const hpEvents = await evaluateHp(tasks);  // 未達成のダメージ精算
+  const goldWin = checkGoldChest(tasks);     // 半年ノーダメージ達成判定
 
   const heroPanel = el('div', { class: 'dojo-hero pixel-panel' });
   const pendingList = el('div', { class: 'dojo-list' });
@@ -169,6 +193,7 @@ export async function renderTraining(root) {
           el('div', { class: 'dojo-xp-text' }, `EXP ${rest} / ${need}`),
           el('div', { class: 'dojo-hp-row' },
             el('span', { class: 'dojo-hp-icon', html: spriteSVG('heart', { size: 14 }) }),
+            el('span', { class: 'dojo-hp-tag' }, 'HP'),
             el('div', { class: `pixbar hp-gauge ${hpCls} ${hpFx || ''}` },
               Array.from({ length: hpBlocks }, (_, i) => el('span', { class: i < hpFilled ? 'hp-on' : '' }))
             ),
@@ -176,6 +201,28 @@ export async function renderTraining(root) {
           )
         )
       )
+    );
+    const sr = streakRow(p);
+    if (sr) heroPanel.append(sr);
+  }
+
+  // 無傷継続 → 金の宝箱 の進捗
+  function streakRow(p) {
+    const hasCount = tasks.some((t) => isCountRecur(t.recur));
+    if (!hasCount && p.goldChests === 0) return null;
+    const days = Math.floor((Date.now() - p.noDmgSince) / DAY_MS);
+    const blocks = 12;
+    const filled = Math.min(blocks, Math.round((days / NO_DMG_GOAL_DAYS) * blocks));
+    return el('div', { class: 'streak-row' },
+      el('div', { class: 'streak-head' },
+        el('span', { html: spriteSVG('chestClosed', { size: 20 }) }),
+        el('span', { class: 'streak-title' }, '半年ノーダメージで金の宝箱'),
+        p.goldChests > 0 ? el('span', { class: 'streak-count' }, `獲得 ×${p.goldChests}`) : null
+      ),
+      el('div', { class: 'pixbar streak-bar' },
+        Array.from({ length: blocks }, (_, i) => el('span', { class: i < filled ? 'gold-on' : '' }))
+      ),
+      el('div', { class: 'streak-text' }, `無傷継続 ${days}日 / ${NO_DMG_GOAL_DAYS}日`)
     );
   }
 
@@ -451,6 +498,7 @@ export async function renderTraining(root) {
           if (isNew) tasks.push(draft);
           closeSheet();
           paintLists();
+          paintHero(false); // ストリーク行の有無を更新
         }
       }, isNew ? '追加する' : '保存する')
     ];
@@ -464,6 +512,7 @@ export async function renderTraining(root) {
           tasks = tasks.filter((t) => t.id !== draft.id);
           closeSheet();
           paintLists();
+          paintHero(false);
         }
       }, 'このメニューを削除'));
     }
@@ -502,5 +551,19 @@ export async function renderTraining(root) {
         duration: 2800
       });
     }, 500);
+  }
+
+  // 半年ノーダメージ達成 → 金の宝箱GET
+  if (goldWin) {
+    setTimeout(() => {
+      haptic([20, 60, 20, 60, 20, 60, 60]);
+      rainConfetti(['#ffcd75', '#e8a33d', '#fff3c4', '#a7f070', '#73eff7'], 90);
+      showBanner({
+        iconHtml: `<div class="gold-chest-win">${spriteSVG('chestOpen', { size: 120 })}</div>`,
+        text: '半年ノーダメージ達成!',
+        sub: '金の宝箱をGETした!',
+        duration: 3200
+      });
+    }, hpEvents.length ? 3200 : 500);
   }
 }

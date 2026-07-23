@@ -1,5 +1,5 @@
 /* クエストダンジョン Service Worker: アプリシェルをキャッシュしてオフライン動作させる */
-const VERSION = 'qd-v5';
+const VERSION = 'qd-v6';
 const SHELL = [
   './',
   './index.html',
@@ -34,6 +34,11 @@ self.addEventListener('activate', (e) => {
       .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
+});
+
+// ページからの要求で待機中SWを即時有効化
+self.addEventListener('message', (e) => {
+  if (e.data === 'skip-waiting') self.skipWaiting();
 });
 
 self.addEventListener('fetch', (e) => {
