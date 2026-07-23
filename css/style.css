@@ -201,7 +201,7 @@ input, textarea {
   display: block;
 }
 .map-card:active { transform: translateY(2px); }
-.map-card-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; padding-right: 28px; }
+.map-card-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; padding-right: 76px; }
 .map-card-title { font-size: 17px; line-height: 1.4; flex: 1; word-break: break-word; }
 .map-card-stars { display: flex; gap: 4px; flex-shrink: 0; }
 .map-card-secret { color: var(--c-violet); font-size: 12px; margin-bottom: 10px; word-break: break-word; }
@@ -858,3 +858,334 @@ input, textarea {
 .secret-steps-box .btn { width: 100%; }
 .secret-step-node .node-label { border-color: var(--c-violet); color: #d9a0f0; }
 .undo-link.danger { color: var(--c-red); display: block; margin-top: 14px; }
+.undo-link.candy-link { color: #ff8fb0; display: block; margin-top: 14px; }
+
+/* ---------- ご褒美マス(ペロペロキャンディー) ---------- */
+.reward-node .node-face { animation: candy-glow 1.8s ease-in-out infinite; }
+.reward-node.locked .node-face { animation: none; filter: grayscale(.55) brightness(.75); }
+.reward-node.claimed .node-face { animation: none; filter: none; }
+@keyframes candy-glow {
+  0%, 100% { filter: drop-shadow(0 0 4px rgba(255, 93, 143, .45)); }
+  50% { filter: drop-shadow(0 0 14px rgba(255, 143, 176, .95)); }
+}
+.reward-node.ready .node-face { animation: candy-glow 1.2s ease-in-out infinite, bounce 1.4s infinite; }
+.reward-node .spark {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  background: #fff;
+  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
+  animation: twinkle 1.3s ease-in-out infinite;
+  pointer-events: none;
+}
+.reward-node .spark.s1 { top: -6px; right: -4px; }
+.reward-node .spark.s2 { bottom: 8px; left: -8px; animation-delay: .45s; width: 7px; height: 7px; }
+.reward-node .spark.s3 { top: 12px; right: -10px; animation-delay: .9s; }
+.reward-node.locked .spark { display: none; }
+@keyframes twinkle {
+  0%, 100% { opacity: 0; transform: scale(.3) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1.15) rotate(45deg); }
+}
+.reward-label { border-color: #ff5d8f !important; color: #ffb8cc !important; }
+.sheet-kind.candy { color: #ff8fb0; }
+.btn-candy { background: #ff5d8f; color: #4a0a20; }
+
+/* ---------- 宝箱の戦利品 ---------- */
+.node-loot {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  animation: loot-hover 1.6s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px rgba(255, 205, 117, .7));
+  pointer-events: none;
+}
+@keyframes loot-hover {
+  0%, 100% { margin-top: 0; }
+  50% { margin-top: -4px; }
+}
+.loot-earned {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--c-gold);
+  background: var(--c-night);
+  border: 2px solid var(--c-amber);
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+.loot-reveal {
+  padding: 14px;
+  background: radial-gradient(circle, rgba(255, 205, 117, .35) 0%, transparent 70%);
+  animation: loot-reveal-pop .7s cubic-bezier(.2, 1.6, .4, 1);
+}
+.loot-reveal.luxe { background: radial-gradient(circle, rgba(176, 106, 212, .45) 0%, transparent 70%); }
+@keyframes loot-reveal-pop {
+  0% { transform: scale(0) rotate(-30deg); }
+  100% { transform: scale(1) rotate(0); }
+}
+.banner-sub {
+  font-size: 15px;
+  color: var(--c-white);
+  background: rgba(26, 28, 44, .9);
+  padding: 8px 18px;
+  border: 2px solid var(--c-slate);
+  max-width: 84vw;
+  text-align: center;
+}
+
+/* ---------- ダンジョンロック ---------- */
+.map-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 22px 0 12px;
+}
+.map-list-title { font-size: 13px; color: var(--c-grey); letter-spacing: 2px; }
+.lock-reveal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--c-gold);
+  background: var(--c-dark);
+  border: 3px solid var(--c-slate);
+  padding: 6px 12px;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, .5);
+}
+.lock-reveal.open { background: var(--c-teal); border-color: var(--c-cyan); color: #fff; }
+.lock-reveal:active { transform: translateY(2px); box-shadow: none; }
+.map-card-lock {
+  position: absolute;
+  top: 8px;
+  right: 44px;
+  width: 34px;
+  height: 34px;
+  font-size: 15px;
+  color: var(--c-slate);
+  z-index: 2;
+  opacity: .75;
+}
+.map-card-lock.locked { color: var(--c-gold); opacity: 1; }
+.map-card.is-locked { opacity: .82; }
+.map-card.is-locked .map-card-title::after { content: ' 🔒'; font-size: 13px; }
+
+/* ---------- 武具コレクション ---------- */
+.gear-shelf-title {
+  font-size: 12px;
+  color: var(--c-cyan);
+  letter-spacing: 2px;
+  margin: 14px 0 8px;
+  border-top: 2px solid rgba(86, 108, 134, .4);
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.gear-shelf-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 38px;
+  align-items: center;
+}
+.gear-item {
+  display: inline-flex;
+  padding: 4px;
+  background: rgba(26, 28, 44, .6);
+  border: 2px solid var(--c-slate);
+  cursor: pointer;
+}
+.gear-item.normal { filter: drop-shadow(0 0 4px rgba(148, 176, 194, .5)); }
+.gear-item.luxe { border-color: var(--c-violet); filter: drop-shadow(0 0 7px rgba(176, 106, 212, .8)); }
+
+/* ---------- 特訓部屋の入口(ホーム) ---------- */
+.dojo-entry {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  margin-top: 18px;
+  background: linear-gradient(180deg, #3a2317, #2b1a12);
+  text-align: left;
+}
+.dojo-entry:active { transform: translateY(2px); }
+.dojo-entry-info { flex: 1; min-width: 0; }
+.dojo-entry-title { font-size: 15px; color: var(--c-orange); margin-bottom: 6px; }
+.dojo-entry-lv { color: var(--c-gold); margin-left: 6px; }
+.dojo-title-tag {
+  font-size: 10px;
+  color: var(--c-grey);
+  background: rgba(0, 0, 0, .35);
+  border: 2px solid var(--c-slate);
+  padding: 2px 6px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+.dojo-entry-arrow { color: var(--c-slate); font-size: 14px; }
+
+.xp-bar span.xp-on { background: var(--c-cyan); box-shadow: inset 0 -3px 0 #2fa5c9; }
+.xp-bar.small { height: 12px; }
+
+/* ---------- 特訓部屋 ---------- */
+.dojo {
+  min-height: 100vh;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(14px + var(--safe-top)) 16px calc(40px + var(--safe-bottom));
+  background:
+    repeating-linear-gradient(90deg, rgba(0, 0, 0, .14) 0 3px, transparent 3px 46px),
+    linear-gradient(180deg, #2b1a12 0%, #241610 50%, #1c110c 100%);
+}
+.dojo-hero { padding: 16px; background: linear-gradient(180deg, #3a2317, #2b1a12); margin-bottom: 20px; }
+.dojo-hero-row { display: flex; align-items: center; gap: 16px; }
+.dojo-hero-sprite { flex-shrink: 0; }
+.dojo-hero-sprite.gain { animation: hero-gain .7s ease-out; }
+@keyframes hero-gain {
+  0% { transform: scale(1); filter: none; }
+  40% { transform: scale(1.25); filter: drop-shadow(0 0 14px rgba(115, 239, 247, .9)); }
+  100% { transform: scale(1); filter: none; }
+}
+.dojo-hero-info { flex: 1; min-width: 0; }
+.dojo-level { font-size: 18px; color: var(--c-gold); margin-bottom: 8px; }
+.dojo-xp-text { font-size: 11px; color: var(--c-grey); margin-top: 6px; }
+.dojo-section-title { font-size: 13px; color: var(--c-orange); letter-spacing: 2px; margin-bottom: 12px; }
+.dojo-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.dojo-add { margin-bottom: 22px; }
+
+.dojo-task {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  background: linear-gradient(180deg, #33261b, #2b1e14);
+  overflow: hidden;
+}
+.dojo-task-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  text-align: left;
+  min-width: 0;
+}
+.dojo-task-icon { flex-shrink: 0; }
+.dojo-task-name { flex: 1; font-size: 15px; line-height: 1.5; word-break: break-word; }
+.dojo-recur {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--c-slate);
+  border: 2px solid var(--c-slate);
+  padding: 2px 6px;
+}
+.dojo-recur.on { color: var(--c-cyan); border-color: var(--c-teal); }
+.dojo-complete {
+  width: 64px;
+  flex-shrink: 0;
+  font-size: 24px;
+  background: var(--c-green);
+  color: #08240f;
+  border-left: 3px solid var(--c-dark);
+}
+.dojo-complete:active { filter: brightness(1.2); }
+
+.dojo-task.slashed { animation: task-clear .65s ease-in forwards; }
+@keyframes task-clear {
+  0% { transform: translateX(0); opacity: 1; }
+  15% { transform: translateX(-7px); }
+  30% { transform: translateX(5px); }
+  100% { transform: translateX(40px); opacity: 0; height: 0; }
+}
+.slash-fx {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(115deg, transparent 42%, #fff 48%, #73eff7 52%, transparent 58%);
+  animation: slash-swipe .4s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes slash-swipe {
+  0% { transform: translateX(-110%); opacity: 1; }
+  100% { transform: translateX(110%); opacity: 0; }
+}
+.exp-pop {
+  position: absolute;
+  right: 70px;
+  top: 50%;
+  font-size: 15px;
+  color: var(--c-cyan);
+  text-shadow: 2px 2px 0 #08240f;
+  animation: exp-float .9s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes exp-float {
+  0% { transform: translateY(0); opacity: 1; }
+  100% { transform: translateY(-34px); opacity: 0; }
+}
+
+.dojo-done { margin-top: 6px; }
+.dojo-done summary {
+  font-size: 13px;
+  color: var(--c-grey);
+  cursor: pointer;
+  padding: 10px 0;
+  letter-spacing: 1px;
+}
+.dojo-done-list { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; }
+.dojo-task.done {
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, .25);
+  border: 2px solid #3a2b1c;
+  box-shadow: none;
+  opacity: .85;
+}
+.dojo-task.done .dojo-task-name { font-size: 13px; color: var(--c-grey); }
+.dojo-done-meta { font-size: 10px; color: var(--c-slate); margin-top: 3px; }
+.dojo-undo {
+  width: 36px;
+  height: 36px;
+  font-size: 15px;
+  color: var(--c-slate);
+  border: 2px solid var(--c-slate);
+  flex-shrink: 0;
+}
+.dojo-empty {
+  text-align: center;
+  color: #8a6f4b;
+  font-size: 13px;
+  line-height: 2;
+  padding: 26px 16px;
+  border: 3px dashed #3a2b1c;
+}
+.dojo-empty.small { padding: 12px; border: none; }
+.levelup-hero { animation: levelup-rise 1s cubic-bezier(.2, 1.4, .4, 1); filter: drop-shadow(0 0 18px rgba(115, 239, 247, .9)); }
+@keyframes levelup-rise {
+  0% { transform: translateY(40px) scale(.4); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* 特訓部屋のくりかえし設定 */
+.recur-box { margin-bottom: 14px; }
+.recur-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.recur-row .seg {
+  padding: 9px 14px;
+  font-size: 13px;
+  background: var(--c-night);
+  border: 3px solid var(--c-dark);
+  color: var(--c-grey);
+}
+.recur-row .seg.on { background: var(--c-teal); color: #fff; border-color: var(--c-cyan); }
+.recur-row .seg.day { width: 40px; padding: 9px 0; text-align: center; }
+.dialog-input { margin-bottom: 16px; }
+.dialog-input input {
+  width: 100%;
+  background: var(--c-night);
+  border: 3px solid var(--c-dark);
+  color: var(--c-white);
+  padding: 12px;
+  outline: none;
+}
+.dialog-input input:focus { border-color: var(--c-sky); }

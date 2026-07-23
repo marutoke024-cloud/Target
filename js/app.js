@@ -2,6 +2,7 @@
 import { renderHome } from './views/home.js';
 import { renderWizard } from './views/wizard.js';
 import { renderMap } from './views/map.js';
+import { renderTraining } from './views/training.js';
 
 const app = document.getElementById('app');
 
@@ -14,6 +15,8 @@ async function route() {
     await renderMap(app, hash.slice(5));
   } else if (hash === '#new') {
     renderWizard(app);
+  } else if (hash === '#training') {
+    await renderTraining(app);
   } else {
     await renderHome(app);
   }

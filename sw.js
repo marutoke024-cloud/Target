@@ -1,5 +1,5 @@
 /* クエストダンジョン Service Worker: アプリシェルをキャッシュしてオフライン動作させる */
-const VERSION = 'qd-v2';
+const VERSION = 'qd-v3';
 const SHELL = [
   './',
   './index.html',
@@ -10,7 +10,9 @@ const SHELL = [
   './js/db.js',
   './js/util.js',
   './js/sprites.js',
+  './js/gear.js',
   './js/views/home.js',
+  './js/views/training.js',
   './js/views/wizard.js',
   './js/views/map.js',
   './js/views/records.js',

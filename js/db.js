@@ -1,6 +1,6 @@
 // IndexedDB ラッパー: マップ・記録・画像を永続化する
 const DB_NAME = 'quest-dungeon';
-const DB_VER = 1;
+const DB_VER = 2;
 
 let dbPromise = null;
 
@@ -19,6 +19,9 @@ function open() {
       }
       if (!db.objectStoreNames.contains('images')) {
         db.createObjectStore('images', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('tasks')) {
+        db.createObjectStore('tasks', { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -59,6 +62,13 @@ function normalizeMap(map) {
   if (!map) return map;
   map.steps = (map.steps || []).map(normalizeStep);
   map.secretSteps = (map.secretSteps || []).map(normalizeStep);
+  map.rewards = (map.rewards || []).map((r) => ({
+    id: r.id,
+    name: r.name,
+    afterIndex: r.afterIndex ?? 0,
+    claimedAt: r.claimedAt ?? null
+  }));
+  map.locked = !!map.locked;
   return map;
 }
 
@@ -109,6 +119,20 @@ export async function deleteRecord(record) {
     await tx('images', 'readwrite', (s) => { s.delete(iid); });
   }
   return tx('records', 'readwrite', (s) => { s.delete(record.id); });
+}
+
+// --- tasks(特訓部屋) ---
+export function getAllTasks() {
+  return tx('tasks', 'readonly', (s) => reqValue(s.getAll()))
+    .then((ts) => ts.sort((a, b) => a.createdAt - b.createdAt));
+}
+
+export function putTask(task) {
+  return tx('tasks', 'readwrite', (s) => { s.put(task); });
+}
+
+export function deleteTask(id) {
+  return tx('tasks', 'readwrite', (s) => { s.delete(id); });
 }
 
 // --- images ---

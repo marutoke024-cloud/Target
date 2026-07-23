@@ -201,6 +201,27 @@ const GRIDS = {
       '....DDDD....'
     ]
   },
+  // ご褒美マスのペロペロキャンディー(渦巻き+棒)
+  candy: {
+    colors: { D: '#5d1a35', P: '#ff5d8f', p: '#ff8fb0', W: '#fff4f8', H: '#f4f4f4', S: '#c9ced6' },
+    grid: [
+      '...DDDDD...',
+      '..DPPpPPD..',
+      '.DPWWWWWPD.',
+      'DPpWPPPWpPD',
+      'DPWPPpPPWPD',
+      'DPWPpWpPWPD',
+      'DPWPPpPPWPD',
+      'DPpWPPPWpPD',
+      '.DPWWWWWPD.',
+      '..DPPpPPD..',
+      '...DDDDD...',
+      '....DHS....',
+      '....DHS....',
+      '....DHS....',
+      '....DDD....'
+    ]
+  },
   // スタンプ(習慣達成の判子)赤いハンコ風
   stamp: {
     colors: { R: '#d1324a', r: '#ff5566', W: '#fff0f0', D: '#6e1622' },
@@ -236,6 +257,11 @@ const GRIDS = {
 export function spriteSVG(name, opts = {}) {
   const def = GRIDS[name];
   if (!def) return '';
+  return gridSVG(def, opts);
+}
+
+// 任意のグリッド定義をSVG化(武具スプライトなど外部定義用)
+export function gridSVG(def, opts = {}) {
   const grid = def.grid;
   const colors = Object.assign({}, def.colors, opts.colors || {});
   const h = grid.length;

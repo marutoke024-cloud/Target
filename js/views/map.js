@@ -1,10 +1,15 @@
-// ダンジョンマップ画面: スゴロク風マップ + クリア演出 + 宝箱 + 習慣スタンプシート
-import { getMap, putMap, putImage, getImageURL, deleteImage, getRecords } from '../db.js';
-import { el, uid, fmtDate, haptic, toast, confirmDialog, resizeImage, debounce } from '../util.js';
+// ダンジョンマップ画面: スゴロク風マップ + ご褒美マス + 宝箱戦利品 + 習慣スタンプ
+import { getMap, getAllMaps, putMap, putImage, getImageURL, deleteImage, getRecords } from '../db.js';
+import {
+  el, uid, fmtDate, haptic, toast, confirmDialog, promptDialog,
+  resizeImage, debounce, openSheet, closeSheet, rainConfetti, showBanner
+} from '../util.js';
 import { spriteSVG, gemSVG } from '../sprites.js';
+import { gearSVG, gearName, rollLoot } from '../gear.js';
 import { openRecords } from './records.js';
 
 const GAP = 132;          // ステップ間の縦距離
+const RGAP = 112;         // ご褒美マスの縦距離
 const SGAP = 132;         // 裏ステップ間の縦距離
 const SECRET_GAP = 270;   // 裏ステップが無いときのゴール→裏ゴール距離
 const GOAL_EXTRA = 40;
@@ -18,7 +23,6 @@ function todayKey() { return dateKey(new Date()); }
 function parseKey(k) { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d); }
 function startOfWeek(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - x.getDay()); return x; }
 
-// いまの期間(今週/今月)にいくつスタンプが押されているか
 function periodCount(step, ref = new Date()) {
   if (!step.habit) return 0;
   const stamps = step.stamps || [];
@@ -39,50 +43,63 @@ export async function renderMap(root, mapId) {
   const secretSteps = hasSecret ? map.secretSteps : [];
   const n = map.steps.length;
   const m = secretSteps.length;
+  const rewards = map.rewards || [];
 
   const rerender = () => renderMap(root, mapId);
 
-  // ---- レイアウト計算(下がスタート、上がゴール→裏ゴール) ----
+  // ---- レイアウト: スタート→(ステップ/ご褒美)→ゴール→裏ステップ→裏ゴール の並び ----
   const width = Math.min(window.innerWidth, 560);
   const cx = width / 2;
   const amp = width * 0.26;
-  const topPad = hasSecret ? 170 : 150;
-  const bottomPad = 130;
-  const secretSpan = hasSecret ? (m > 0 ? (m + 1) * SGAP + 40 : SECRET_GAP) : 0;
-  const span = (n + 1) * GAP + GOAL_EXTRA + secretSpan;
-  const worldH = topPad + span + bottomPad;
-  const startY = worldH - bottomPad;
   const xAt = (k) => cx + amp * Math.sin(k * 1.7 + 0.4);
 
-  const pts = [];
-  const startPt = { x: xAt(0), y: startY, kind: 'start' };
-  pts.push(startPt);
-  map.steps.forEach((s, i) => {
-    pts.push({ x: xAt(i + 1), y: startY - (i + 1) * GAP, kind: 'step', step: s, index: i });
+  // 並び(下から上へ)を構築
+  const seq = [{ kind: 'start' }];
+  map.steps.forEach((step, i) => {
+    seq.push({ kind: 'step', step, index: i });
+    rewards.filter((r) => r.afterIndex === i).forEach((r) => seq.push({ kind: 'reward', reward: r }));
   });
-  const goalPt = { x: cx + amp * 0.35 * Math.sin((n + 1) * 1.7 + 0.4), y: startY - (n + 1) * GAP - GOAL_EXTRA, kind: 'goal' };
-  pts.push(goalPt);
-  const secretStepPts = [];
-  let secretPt = null;
-  if (hasSecret) {
-    secretSteps.forEach((s, j) => {
-      const p = { x: xAt(n + 2 + j), y: goalPt.y - (j + 1) * SGAP, kind: 'secretStep', step: s, index: j };
-      secretStepPts.push(p);
-      pts.push(p);
-    });
-    secretPt = { x: cx, y: goalPt.y - secretSpan, kind: 'secret' };
-    pts.push(secretPt);
-  }
+  seq.push({ kind: 'goal' });
+  secretSteps.forEach((step, j) => seq.push({ kind: 'secretStep', step, index: j }));
+  if (hasSecret) seq.push({ kind: 'secret' });
+
+  // 各要素のY間隔
+  const gapOf = (e) => e.kind === 'reward' ? RGAP
+    : e.kind === 'goal' ? GAP + GOAL_EXTRA
+    : e.kind === 'secretStep' ? SGAP
+    : e.kind === 'secret' ? (m > 0 ? SGAP + 40 : SECRET_GAP)
+    : GAP;
+
+  const topPad = hasSecret ? 170 : 150;
+  const bottomPad = 130;
+  let span = 0;
+  for (let i = 1; i < seq.length; i++) span += gapOf(seq[i]);
+  const worldH = topPad + span + bottomPad;
+  const startY = worldH - bottomPad;
+
+  let y = startY;
+  seq.forEach((e, k) => {
+    if (k > 0) y -= gapOf(e);
+    e.y = y;
+    e.x = e.kind === 'secret' ? cx : e.kind === 'goal' ? cx + amp * 0.35 * Math.sin(k * 1.7 + 0.4) : xAt(k);
+  });
+
+  const startPt = seq[0];
+  const goalPt = seq.find((e) => e.kind === 'goal');
+  const secretPt = seq.find((e) => e.kind === 'secret') || null;
+  const stepPts = new Map();   // step.id -> seq entry
+  seq.forEach((e) => { if (e.kind === 'step' || e.kind === 'secretStep') stepPts.set(e.step.id, e); });
+  const rewardPts = new Map(); // reward.id -> seq entry
+  seq.forEach((e) => { if (e.kind === 'reward') rewardPts.set(e.reward.id, e); });
 
   // ---- DOM構築 ----
   const world = el('div', { class: 'map-world' });
   world.style.height = `${worldH}px`;
   world.style.background = buildSkyGradient(worldH, hasSecret, goalPt.y);
-  world.innerHTML = buildTerrainSVG(map.id, width, worldH, pts, hasSecret);
+  world.innerHTML = buildTerrainSVG(map.id, width, worldH, seq, hasSecret);
 
   const viewport = el('div', { class: 'map-viewport' }, world);
 
-  // 霧(裏ゴールゾーンを隠す)
   let fog = null;
   if (hasSecret) {
     fog = el('div', { class: `fog ${map.goal.openedAt ? 'lifted' : ''}` },
@@ -94,7 +111,6 @@ export async function renderMap(root, mapId) {
     world.append(fog);
   }
 
-  // スタート地点
   world.append(
     el('div', { class: 'map-node', style: `left:${startPt.x}px; top:${startPt.y}px` },
       el('div', { class: 'node-face', html: spriteSVG('flag', { size: 44 }) }),
@@ -102,8 +118,7 @@ export async function renderMap(root, mapId) {
     )
   );
 
-  // ステップノード + 裏ステップノード(共通処理)
-  const nodeEls = new Map(); // step.id -> { el, step, kind, index, point }
+  const nodeEls = new Map();
 
   function buildStepNode(step, kind, index, point) {
     const node = el('button', {
@@ -115,13 +130,25 @@ export async function renderMap(root, mapId) {
     world.append(node);
     nodeEls.set(step.id, { el: node, step, kind, index, point });
     paintStepNode(step.id);
-    return node;
   }
+  map.steps.forEach((step, i) => buildStepNode(step, 'step', i, stepPts.get(step.id)));
+  secretSteps.forEach((step, j) => buildStepNode(step, 'secretStep', j, stepPts.get(step.id)));
 
-  map.steps.forEach((step, i) => buildStepNode(step, 'step', i, pts[i + 1]));
-  secretSteps.forEach((step, j) => buildStepNode(step, 'secretStep', j, secretStepPts[j]));
+  // ご褒美マス(キャンディー)
+  const rewardEls = new Map();
+  rewards.forEach((r) => {
+    const p = rewardPts.get(r.id);
+    const node = el('button', {
+      class: 'map-node reward-node',
+      style: `left:${p.x}px; top:${p.y}px`,
+      'aria-label': `ごほうび: ${r.name}`,
+      onclick: () => openRewardSheet(r)
+    });
+    world.append(node);
+    rewardEls.set(r.id, { el: node, reward: r, point: p });
+    paintRewardNode(r.id);
+  });
 
-  // ゴール宝箱
   const goalNode = el('button', {
     class: 'map-node goal-node',
     style: `left:${goalPt.x}px; top:${goalPt.y}px`,
@@ -130,7 +157,6 @@ export async function renderMap(root, mapId) {
   });
   world.append(goalNode);
 
-  // 裏ゴール宝箱
   let secretNode = null;
   if (hasSecret) {
     secretNode = el('button', {
@@ -142,11 +168,9 @@ export async function renderMap(root, mapId) {
     world.append(secretNode);
   }
 
-  // 勇者
   const hero = el('div', { class: 'hero-sprite', html: spriteSVG('hero', { size: 34 }) });
   world.append(hero);
 
-  // ヘッダー
   const progressEl = el('div', { class: 'map-header-progress' });
   const recordBadge = el('span', { class: 'badge', style: 'display:none' });
   const header = el('div', { class: 'map-header' },
@@ -194,10 +218,8 @@ export async function renderMap(root, mapId) {
   }
   function heroPoint() {
     if (map.lastNodeId) {
-      const idx = map.steps.findIndex((s) => s.id === map.lastNodeId);
-      if (idx >= 0 && map.steps[idx].clearedAt) return pts[idx + 1];
-      const sidx = secretSteps.findIndex((s) => s.id === map.lastNodeId);
-      if (sidx >= 0 && secretSteps[sidx].clearedAt) return secretStepPts[sidx];
+      const e = stepPts.get(map.lastNodeId);
+      if (e && e.step.clearedAt) return e;
       if (map.lastNodeId === 'goal') return goalPt;
       if (map.lastNodeId === 'secret' && secretPt) return secretPt;
     }
@@ -215,12 +237,13 @@ export async function renderMap(root, mapId) {
     const cleared = map.steps.filter((s) => s.clearedAt).length;
     let txt = `▶ ${cleared}/${n} ステップ`;
     if (map.goal.openedAt) txt += '  ★GOAL';
-    if (m > 0) {
-      const sc = secretSteps.filter((s) => s.clearedAt).length;
-      txt += `  裏${sc}/${m}`;
-    }
+    if (m > 0) txt += `  裏${secretSteps.filter((s) => s.clearedAt).length}/${m}`;
     if (map.secretGoal && map.secretGoal.openedAt) txt += '  ★裏GOAL';
     progressEl.textContent = txt;
+  }
+
+  function prefixCleared(afterIndex) {
+    return map.steps.slice(0, afterIndex + 1).every((s) => s.clearedAt);
   }
 
   function paintGoalNodes() {
@@ -231,19 +254,21 @@ export async function renderMap(root, mapId) {
     goalNode.innerHTML = '';
     goalNode.append(
       el('div', { class: 'node-face', html: spriteSVG(opened ? 'chestOpen' : 'chestClosed', { size: 78 }) },
-        (!allCleared && !opened) ? el('span', { class: 'node-lock', html: spriteSVG('lock', { size: 22 }) }) : null
+        (!allCleared && !opened) ? el('span', { class: 'node-lock', html: spriteSVG('lock', { size: 22 }) }) : null,
+        (opened && map.goal.lootId) ? el('span', { class: 'node-loot', html: gearSVG(map.goal.lootId, 30) }) : null
       ),
       el('div', { class: 'node-label' }, `GOAL: ${map.goal.name}`)
     );
     if (secretNode) {
       const sOpened = !!map.secretGoal.openedAt;
-      const secretStepsDone = secretSteps.every((s) => s.clearedAt);
-      const canOpen = opened && secretStepsDone;
+      const canOpen = opened && secretSteps.every((s) => s.clearedAt);
       secretNode.classList.toggle('locked', !canOpen && !sOpened);
       secretNode.classList.toggle('ready', canOpen && !sOpened);
       secretNode.innerHTML = '';
       secretNode.append(
-        el('div', { class: 'node-face', html: spriteSVG(sOpened ? 'luxeOpen' : 'luxeClosed', { size: 92 }) }),
+        el('div', { class: 'node-face', html: spriteSVG(sOpened ? 'luxeOpen' : 'luxeClosed', { size: 92 }) },
+          (sOpened && map.secretGoal.lootId) ? el('span', { class: 'node-loot', html: gearSVG(map.secretGoal.lootId, 34) }) : null
+        ),
         el('div', { class: 'node-label' }, opened ? `裏ゴール: ${map.secretGoal.name}` : '？？？')
       );
     }
@@ -272,7 +297,24 @@ export async function renderMap(root, mapId) {
     node.append(...children);
   }
 
-  // ---- ズーム・スクロール・演出 ----
+  function paintRewardNode(id) {
+    const info = rewardEls.get(id);
+    if (!info) return;
+    const { el: node, reward } = info;
+    const unlocked = prefixCleared(reward.afterIndex);
+    const claimed = !!reward.claimedAt;
+    node.classList.toggle('locked', !unlocked && !claimed);
+    node.classList.toggle('ready', unlocked && !claimed);
+    node.classList.toggle('claimed', claimed);
+    node.innerHTML = '';
+    const face = el('div', { class: 'node-face', html: spriteSVG('candy', { size: 46 }) },
+      el('span', { class: 'spark s1' }), el('span', { class: 'spark s2' }), el('span', { class: 'spark s3' })
+    );
+    if (claimed) face.append(el('span', { class: 'node-check' }, '✓'));
+    node.append(face, el('div', { class: 'node-label reward-label' }, `🍬 ${reward.name}`));
+  }
+
+  // ---- 演出 ----
   function zoomTo(p, scale = 1.9) { world.style.transformOrigin = `${p.x}px ${p.y}px`; world.style.transform = `scale(${scale})`; }
   function unzoom() { world.style.transform = 'scale(1)'; }
   function scrollToPoint(p) { viewport.scrollTo({ top: Math.max(0, p.y - window.innerHeight * 0.5), behavior: 'smooth' }); }
@@ -292,31 +334,11 @@ export async function renderMap(root, mapId) {
       setTimeout(() => s.remove(), 950);
     }
   }
-  function rainConfetti(colors, count = 60) {
-    for (let i = 0; i < count; i++) {
-      const c = el('div', { class: 'confetti' });
-      c.style.left = `${Math.random() * 100}vw`;
-      c.style.width = '8px'; c.style.height = `${6 + Math.random() * 8}px`;
-      c.style.background = colors[i % colors.length];
-      c.style.animationDuration = `${1.3 + Math.random() * 1.4}s`;
-      c.style.animationDelay = `${Math.random() * 0.7}s`;
-      document.body.append(c);
-      setTimeout(() => c.remove(), 3600);
-    }
-  }
-  function showBanner(text, starKind, purple) {
-    const banner = el('div', { class: `clear-banner ${purple ? 'purple' : ''}` },
-      el('div', { class: 'banner-star', html: spriteSVG(starKind, { size: 96 }) }),
-      el('div', { class: 'banner-text' }, text)
-    );
-    document.body.append(banner);
-    setTimeout(() => { banner.style.transition = 'opacity .5s'; banner.style.opacity = '0'; setTimeout(() => banner.remove(), 550); }, 2100);
-  }
 
   // ---- ステップ / 裏ステップのシート ----
   function openStepSheet(step, kind, index) {
     const isSecret = kind === 'secretStep';
-    const point = isSecret ? secretStepPts[index] : pts[index + 1];
+    const point = stepPts.get(step.id);
     scrollToPoint(point);
 
     const nameInput = el('input', { type: 'text', maxlength: 40, value: step.name });
@@ -359,6 +381,7 @@ export async function renderMap(root, mapId) {
           await putMap(map);
           closeSheet();
           paintStepNode(step.id); paintGoalNodes(); updateProgress(); placeHero(true);
+          rewards.forEach((r) => paintRewardNode(r.id));
         }
       }, 'クリアを取り消す'));
     } else {
@@ -371,9 +394,24 @@ export async function renderMap(root, mapId) {
           map.lastNodeId = step.id;
           await putMap(map);
           closeSheet();
-          clearSequence(step, kind, index);
+          clearSequence(step, kind);
         }
       }, 'クリアした!'));
+    }
+
+    // ご褒美マスの追加(通常ステップのみ)
+    if (!isSecret) {
+      body.push(el('button', {
+        class: 'undo-link candy-link',
+        onclick: async () => {
+          const name = await promptDialog('ご褒美のないようは?\n(ここまでクリアしたら解放される)', { placeholder: 'れい: 家電を1個買ってよし' });
+          if (!name) return;
+          map.rewards.push({ id: uid(), name, afterIndex: index, claimedAt: null });
+          await putMap(map);
+          closeSheet();
+          rerender();
+        }
+      }, '🍬 このステップの先にご褒美マスをおく'));
     }
 
     if (isSecret) {
@@ -393,8 +431,86 @@ export async function renderMap(root, mapId) {
     openSheet(body);
   }
 
-  function clearSequence(step, kind, index) {
-    const point = kind === 'secretStep' ? secretStepPts[index] : pts[index + 1];
+  // ---- ご褒美マスのシート ----
+  function openRewardSheet(reward) {
+    const point = rewardPts.get(reward.id);
+    scrollToPoint(point);
+    const unlocked = prefixCleared(reward.afterIndex);
+    const claimed = !!reward.claimedAt;
+    const needed = map.steps.slice(0, reward.afterIndex + 1);
+    const remaining = needed.filter((s) => !s.clearedAt).length;
+
+    const nameInput = el('input', { type: 'text', maxlength: 60, value: reward.name });
+    const save = debounce(async () => {
+      reward.name = nameInput.value.trim() || reward.name;
+      await putMap(map);
+      paintRewardNode(reward.id);
+    }, 500);
+    nameInput.addEventListener('input', save);
+
+    const body = [
+      el('div', { class: 'sheet-head' },
+        el('span', { html: spriteSVG('candy', { size: 44 }) }),
+        el('div', {},
+          el('div', { class: 'sheet-kind candy' }, 'ご褒美マス'),
+          el('div', { style: 'font-size:12px; color:var(--c-grey); margin-top:2px' },
+            `STEP1〜${reward.afterIndex + 1} をすべてクリアで解放`)
+        )
+      ),
+      nameInput
+    ];
+
+    if (claimed) {
+      body.push(el('div', { class: 'sheet-date' }, `🍬 ${fmtDate(reward.claimedAt)} ご褒美GET!`));
+      body.push(el('button', {
+        class: 'undo-link',
+        onclick: async () => {
+          if (!(await confirmDialog('ご褒美GETを取り消す?'))) return;
+          reward.claimedAt = null;
+          await putMap(map);
+          closeSheet();
+          paintRewardNode(reward.id);
+        }
+      }, 'GETを取り消す'));
+    } else {
+      body.push(el('button', {
+        class: 'btn btn-candy btn-big',
+        disabled: unlocked ? null : 'disabled',
+        onclick: async () => {
+          reward.claimedAt = Date.now();
+          await putMap(map);
+          closeSheet();
+          haptic([16, 40, 24]);
+          scrollToPoint(point);
+          setTimeout(() => zoomTo(point, 1.8), 380);
+          setTimeout(() => {
+            paintRewardNode(reward.id);
+            burstParticles(point, ['#ff5d8f', '#ff8fb0', '#fff4f8', '#ffcd75']);
+          }, 1000);
+          setTimeout(() => {
+            showBanner({ iconHtml: spriteSVG('candy', { size: 84 }), text: 'ご褒美GET!', sub: reward.name });
+            rainConfetti(['#ff5d8f', '#ff8fb0', '#ffcd75', '#f4f4f4'], 40);
+          }, 1400);
+          setTimeout(() => unzoom(), 3200);
+        }
+      }, unlocked ? 'ご褒美GET!' : `のこり ${remaining} ステップで解放`));
+      body.push(el('button', {
+        class: 'undo-link danger',
+        onclick: async () => {
+          if (!(await confirmDialog(`ご褒美マス「${reward.name}」を削除する?`, { okText: '削除する', danger: true }))) return;
+          map.rewards = map.rewards.filter((r) => r.id !== reward.id);
+          await putMap(map);
+          closeSheet();
+          rerender();
+        }
+      }, 'このマスを削除'));
+    }
+
+    openSheet(body);
+  }
+
+  function clearSequence(step, kind) {
+    const point = stepPts.get(step.id);
     haptic([16, 40, 24]);
     scrollToPoint(point);
     setTimeout(() => zoomTo(point), 380);
@@ -402,6 +518,7 @@ export async function renderMap(root, mapId) {
       paintStepNode(step.id);
       burstParticles(point, ['#ffcd75', '#a7f070', '#73eff7', '#f4f4f4']);
       updateProgress();
+      rewards.forEach((r) => paintRewardNode(r.id));
     }, 1000);
     setTimeout(() => { unzoom(); placeHero(true); }, 1750);
 
@@ -438,7 +555,6 @@ export async function renderMap(root, mapId) {
     const secretRemaining = secretSteps.filter((s) => !s.clearedAt).length;
     const opened = !!target.openedAt;
     const canOpen = isSecret ? (!!map.goal.openedAt && secretRemaining === 0) : remaining === 0;
-
     const chestSprite = isSecret ? (opened ? 'luxeOpen' : 'luxeClosed') : (opened ? 'chestOpen' : 'chestClosed');
 
     const body = [
@@ -453,7 +569,13 @@ export async function renderMap(root, mapId) {
       photoAttach(target, () => putMap(map))
     ];
 
-    // 裏ゴールシートには「120%クリアの道」ステップ管理を出す
+    if (opened && target.lootId) {
+      body.push(el('div', { class: 'loot-earned' },
+        el('span', { html: gearSVG(target.lootId, 40) }),
+        el('span', {}, `戦利品: ${gearName(target.lootId)}`)
+      ));
+    }
+
     if (isSecret) {
       body.push(el('div', { class: 'secret-steps-box' },
         el('div', { class: 'secret-steps-title' }, `120%クリアの道: 裏ステップ ${secretSteps.length}個`),
@@ -474,8 +596,9 @@ export async function renderMap(root, mapId) {
       body.push(el('button', {
         class: 'undo-link',
         onclick: async () => {
-          if (!(await confirmDialog('達成を取り消す?(星も棚からはずれます)'))) return;
+          if (!(await confirmDialog('達成を取り消す?(星と戦利品も棚からはずれます)'))) return;
           target.openedAt = null;
+          target.lootId = null;
           if (map.lastNodeId === (isSecret ? 'secret' : 'goal')) map.lastNodeId = null;
           await putMap(map);
           closeSheet();
@@ -484,34 +607,45 @@ export async function renderMap(root, mapId) {
           placeHero(true);
         }
       }, '達成を取り消す'));
-    } else if (isSecret) {
-      let hint = '';
-      if (!map.goal.openedAt) hint = 'まずゴールを達成しよう';
-      else if (secretRemaining > 0) hint = `のこり ${secretRemaining} 個の裏ステップでひらく`;
-      body.push(el('button', {
-        class: 'btn btn-purple btn-big',
-        disabled: canOpen ? null : 'disabled',
-        onclick: async () => {
-          target.openedAt = Date.now(); map.lastNodeId = 'secret';
-          await putMap(map); closeSheet(); openChestSequence(true);
-        }
-      }, canOpen ? '裏ゴール達成! 豪華な宝箱をあける' : hint));
     } else {
-      body.push(el('button', {
-        class: 'btn btn-gold btn-big',
-        disabled: canOpen ? null : 'disabled',
-        onclick: async () => {
-          target.openedAt = Date.now(); map.lastNodeId = 'goal';
-          await putMap(map); closeSheet(); openChestSequence(false);
+      const openChest = async () => {
+        // 戦利品を抽選(未所持を優先)
+        const all = await getAllMaps();
+        const owned = [];
+        for (const mp of all) {
+          if (mp.goal?.lootId) owned.push(mp.goal.lootId);
+          if (mp.secretGoal?.lootId) owned.push(mp.secretGoal.lootId);
         }
-      }, canOpen ? '宝箱をあける!' : `のこり ${remaining} ステップでひらく`));
-      if (!canOpen) body.push(el('div', { class: 'field-help', style: 'margin-top:8px' }, 'すべてのステップをクリアすると宝箱がひらく。'));
+        target.lootId = rollLoot(isSecret ? 'luxe' : 'normal', owned);
+        target.openedAt = Date.now();
+        map.lastNodeId = isSecret ? 'secret' : 'goal';
+        await putMap(map);
+        closeSheet();
+        openChestSequence(isSecret, target.lootId);
+      };
+      if (isSecret) {
+        let hint = '';
+        if (!map.goal.openedAt) hint = 'まずゴールを達成しよう';
+        else if (secretRemaining > 0) hint = `のこり ${secretRemaining} 個の裏ステップでひらく`;
+        body.push(el('button', {
+          class: 'btn btn-purple btn-big',
+          disabled: canOpen ? null : 'disabled',
+          onclick: openChest
+        }, canOpen ? '裏ゴール達成! 豪華な宝箱をあける' : hint));
+      } else {
+        body.push(el('button', {
+          class: 'btn btn-gold btn-big',
+          disabled: canOpen ? null : 'disabled',
+          onclick: openChest
+        }, canOpen ? '宝箱をあける!' : `のこり ${remaining} ステップでひらく`));
+        if (!canOpen) body.push(el('div', { class: 'field-help', style: 'margin-top:8px' }, 'すべてのステップをクリアすると宝箱がひらく。'));
+      }
     }
 
     openSheet(body);
   }
 
-  function openChestSequence(isSecret) {
+  function openChestSequence(isSecret, lootId) {
     const p = isSecret ? secretPt : goalPt;
     haptic([20, 60, 20, 60, 40]);
     scrollToPoint(p);
@@ -522,15 +656,31 @@ export async function renderMap(root, mapId) {
     }, 1000);
     setTimeout(() => {
       rainConfetti(isSecret ? ['#b06ad4', '#7d3f8d', '#ffcd75', '#73eff7', '#f4f4f4'] : ['#ffcd75', '#e8a33d', '#a7f070', '#73eff7', '#f4f4f4']);
-      showBanner(isSecret ? '裏ゴール制覇!!' : 'GOAL 達成!', isSecret ? 'starPurple' : 'starGold', isSecret);
+      showBanner({
+        iconHtml: spriteSVG(isSecret ? 'starPurple' : 'starGold', { size: 96 }),
+        text: isSecret ? '裏ゴール制覇!!' : 'GOAL 達成!',
+        purple: isSecret,
+        duration: 1900
+      });
     }, 1400);
+    // 戦利品リビール
+    setTimeout(() => {
+      haptic([12, 30, 12]);
+      showBanner({
+        iconHtml: `<div class="loot-reveal ${isSecret ? 'luxe' : ''}">${gearSVG(lootId, 110)}</div>`,
+        text: `${gearName(lootId)} を手に入れた!`,
+        purple: isSecret,
+        duration: 2600
+      });
+    }, 3700);
     setTimeout(() => {
       unzoom(); placeHero(true);
       if (!isSecret && fog) {
         fog.classList.add('lifted');
-        if (secretPt) setTimeout(() => scrollToPoint(secretStepPts[0] || secretPt), 900);
+        const firstSecret = secretSteps[0] ? stepPts.get(secretSteps[0].id) : secretPt;
+        if (firstSecret) setTimeout(() => scrollToPoint(firstSecret), 900);
       }
-    }, 3400);
+    }, 6200);
   }
 
   // ---- 習慣スタンプシート ----
@@ -556,7 +706,6 @@ export async function renderMap(root, mapId) {
         return;
       }
 
-      // 頻度タイプ切り替え + 目標回数
       const typeRow = el('div', { class: 'habit-config' },
         el('div', { class: 'habit-seg' },
           el('button', { class: `seg ${step.habit.type === 'week' ? 'on' : ''}`, onclick: async () => { step.habit.type = 'week'; await persist(); render(); } }, '週'),
@@ -575,7 +724,6 @@ export async function renderMap(root, mapId) {
         }, '解除')
       );
 
-      // 今期間の達成度サマリー
       const c = periodCount(step);
       const done = c >= step.habit.target;
       const summary = el('div', { class: `habit-summary ${done ? 'done' : ''}` },
@@ -609,8 +757,7 @@ export async function renderMap(root, mapId) {
         let weekCount = 0;
         for (let i = 0; i < 7; i++, dnum++) {
           if (dnum < 1 || dnum > days) { grid.append(el('div', { class: 'stamp-cell empty' })); continue; }
-          const d = new Date(cal.y, cal.m, dnum);
-          const k = dateKey(d);
+          const k = dateKey(new Date(cal.y, cal.m, dnum));
           const on = step.stamps.includes(k);
           if (on) weekCount++;
           const future = k > tKey;
@@ -670,18 +817,6 @@ export async function renderMap(root, mapId) {
     return wrap;
   }
 }
-
-// ---- シート(モーダル)共通 ----
-let sheetEl = null;
-function openSheet(children) {
-  closeSheet();
-  const root = document.getElementById('overlay-root');
-  sheetEl = el('div', { class: 'sheet-backdrop', onclick: (e) => { if (e.target === sheetEl) closeSheet(); } },
-    el('div', { class: 'sheet' }, el('div', { class: 'sheet-grip' }), children)
-  );
-  root.append(sheetEl);
-}
-function closeSheet() { if (sheetEl) { sheetEl.remove(); sheetEl = null; } }
 
 export function viewImage(url) {
   const root = document.getElementById('overlay-root');

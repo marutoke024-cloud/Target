@@ -67,6 +67,73 @@ export function confirmDialog(message, { okText = 'はい', cancelText = 'やめ
   });
 }
 
+// ドット風の入力ダイアログ
+export function promptDialog(message, { placeholder = '', value = '', okText = 'OK', maxlength = 60 } = {}) {
+  return new Promise((resolve) => {
+    const root = document.getElementById('overlay-root');
+    const input = el('input', { type: 'text', placeholder, value, maxlength });
+    const close = (v) => { wrap.remove(); resolve(v); };
+    const ok = () => { const v = input.value.trim(); if (v) close(v); else input.focus(); };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') ok(); });
+    const wrap = el('div', { class: 'dialog-backdrop', onclick: (e) => { if (e.target === wrap) close(null); } },
+      el('div', { class: 'dialog pixel-panel' },
+        el('p', { class: 'dialog-msg' }, message),
+        el('div', { class: 'dialog-input' }, input),
+        el('div', { class: 'dialog-btns' },
+          el('button', { class: 'btn btn-ghost', onclick: () => close(null) }, 'やめる'),
+          el('button', { class: 'btn btn-primary', onclick: ok }, okText)
+        )
+      )
+    );
+    root.append(wrap);
+    setTimeout(() => input.focus(), 60);
+  });
+}
+
+// ボトムシート(共通)
+let sheetEl = null;
+export function openSheet(children) {
+  closeSheet();
+  const root = document.getElementById('overlay-root');
+  sheetEl = el('div', { class: 'sheet-backdrop', onclick: (e) => { if (e.target === sheetEl) closeSheet(); } },
+    el('div', { class: 'sheet' }, el('div', { class: 'sheet-grip' }), children)
+  );
+  root.append(sheetEl);
+}
+export function closeSheet() {
+  if (sheetEl) { sheetEl.remove(); sheetEl = null; }
+}
+
+// 紙吹雪(全画面)
+export function rainConfetti(colors, count = 60) {
+  for (let i = 0; i < count; i++) {
+    const c = el('div', { class: 'confetti' });
+    c.style.left = `${Math.random() * 100}vw`;
+    c.style.width = '8px';
+    c.style.height = `${6 + Math.random() * 8}px`;
+    c.style.background = colors[i % colors.length];
+    c.style.animationDuration = `${1.3 + Math.random() * 1.4}s`;
+    c.style.animationDelay = `${Math.random() * 0.7}s`;
+    document.body.append(c);
+    setTimeout(() => c.remove(), 3600);
+  }
+}
+
+// 全画面バナー演出(アイコン+メイン文+サブ文)
+export function showBanner({ iconHtml = '', text = '', sub = '', purple = false, duration = 2100 }) {
+  const banner = el('div', { class: `clear-banner ${purple ? 'purple' : ''}` },
+    iconHtml ? el('div', { class: 'banner-star', html: iconHtml }) : null,
+    el('div', { class: 'banner-text' }, text),
+    sub ? el('div', { class: 'banner-sub' }, sub) : null
+  );
+  document.body.append(banner);
+  setTimeout(() => {
+    banner.style.transition = 'opacity .5s';
+    banner.style.opacity = '0';
+    setTimeout(() => banner.remove(), 550);
+  }, duration);
+}
+
 // 画像ファイルを縮小してBlob化(容量節約)
 export function resizeImage(file, maxSize = 1280) {
   return new Promise((resolve, reject) => {
