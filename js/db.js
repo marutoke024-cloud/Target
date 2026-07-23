@@ -42,14 +42,34 @@ function reqValue(req) {
   return holder;
 }
 
+// 旧バージョンで作られたマップに新フィールドを補う(習慣スタンプ・裏ゴールステップ)
+function normalizeStep(s) {
+  return {
+    id: s.id,
+    name: s.name,
+    memo: s.memo || '',
+    imageId: s.imageId ?? null,
+    clearedAt: s.clearedAt ?? null,
+    habit: s.habit ?? null,                       // { type:'week'|'month', target:number }
+    stamps: Array.isArray(s.stamps) ? s.stamps : [] // ['YYYY-MM-DD', ...]
+  };
+}
+
+function normalizeMap(map) {
+  if (!map) return map;
+  map.steps = (map.steps || []).map(normalizeStep);
+  map.secretSteps = (map.secretSteps || []).map(normalizeStep);
+  return map;
+}
+
 // --- maps ---
 export function getAllMaps() {
   return tx('maps', 'readonly', (s) => reqValue(s.getAll()))
-    .then((maps) => maps.sort((a, b) => b.createdAt - a.createdAt));
+    .then((maps) => maps.map(normalizeMap).sort((a, b) => b.createdAt - a.createdAt));
 }
 
 export function getMap(id) {
-  return tx('maps', 'readonly', (s) => reqValue(s.get(id)));
+  return tx('maps', 'readonly', (s) => reqValue(s.get(id))).then(normalizeMap);
 }
 
 export function putMap(map) {
@@ -64,6 +84,7 @@ export async function deleteMap(id) {
   const imageIds = new Set();
   if (map) {
     for (const step of map.steps) if (step.imageId) imageIds.add(step.imageId);
+    for (const step of (map.secretSteps || [])) if (step.imageId) imageIds.add(step.imageId);
     if (map.goal?.imageId) imageIds.add(map.goal.imageId);
     if (map.secretGoal?.imageId) imageIds.add(map.secretGoal.imageId);
   }

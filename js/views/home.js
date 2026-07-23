@@ -69,6 +69,14 @@ function mapCard(map) {
     el('span', { class: goalOpened ? 'goal-on' : '' })
   );
 
+  const secretSteps = map.secretSteps || [];
+  const secretBar = secretSteps.length
+    ? el('div', { class: 'pixbar pixbar-secret' },
+        secretSteps.map((s) => el('span', { class: s.clearedAt ? 'secret-on' : '' })),
+        el('span', { class: secretOpened ? 'secret-goal-on' : '' })
+      )
+    : null;
+
   const stars = el('div', { class: 'map-card-stars' });
   if (goalOpened) stars.append(el('span', { html: spriteSVG('starGold', { size: 22 }) }));
   if (secretOpened) stars.append(el('span', { html: spriteSVG('starPurple', { size: 22 }) }));
@@ -88,7 +96,13 @@ function mapCard(map) {
     el('div', { class: 'map-card-foot' },
       bar,
       el('span', { class: 'map-card-count' }, `${cleared}/${total}`)
-    )
+    ),
+    secretBar
+      ? el('div', { class: 'map-card-foot secret' },
+          secretBar,
+          el('span', { class: 'map-card-count' }, `裏 ${secretSteps.filter((s) => s.clearedAt).length}/${secretSteps.length}`)
+        )
+      : null
   );
 
   const menuBtn = el('button', {

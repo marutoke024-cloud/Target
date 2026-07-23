@@ -201,6 +201,20 @@ const GRIDS = {
       '....DDDD....'
     ]
   },
+  // スタンプ(習慣達成の判子)赤いハンコ風
+  stamp: {
+    colors: { R: '#d1324a', r: '#ff5566', W: '#fff0f0', D: '#6e1622' },
+    grid: [
+      '.RRRRRR.',
+      'RRrrrrRR',
+      'RrrrrWrR',
+      'RrrrWWrR',
+      'RrWWWrrR',
+      'RrWWrrrR',
+      'RRrrrrRR',
+      '.RRRRRR.'
+    ]
+  },
   // カギ(まだ開かないゴール)
   lock: {
     colors: { D: '#8a5a00', G: '#ffcd75', g: '#e8a33d', K: '#1a1c2c' },

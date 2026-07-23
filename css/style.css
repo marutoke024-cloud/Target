@@ -231,6 +231,10 @@ input, textarea {
 .pixbar span { flex: 1; background: #222438; }
 .pixbar span.on { background: var(--c-lime); box-shadow: inset 0 -3px 0 var(--c-green); }
 .pixbar span.goal-on { background: var(--c-gold); box-shadow: inset 0 -3px 0 var(--c-amber); }
+.pixbar span.secret-on { background: var(--c-violet); box-shadow: inset 0 -3px 0 #4a1f5d; }
+.pixbar span.secret-goal-on { background: #d9a0f0; box-shadow: inset 0 -3px 0 var(--c-violet); }
+.map-card-foot.secret { margin-top: 6px; }
+.pixbar-secret { border-color: #4a1f5d; }
 
 .empty-state {
   text-align: center;
@@ -708,3 +712,149 @@ input, textarea {
   justify-content: center;
 }
 .img-viewer img { max-width: 96vw; max-height: 90vh; object-fit: contain; image-rendering: auto; }
+
+/* ---------- ノードの習慣バッジ・スタンプ印 ---------- */
+.map-node .node-stamp {
+  position: absolute;
+  right: -8px;
+  bottom: -4px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .6));
+}
+.node-habit {
+  font-size: 10px;
+  line-height: 1.2;
+  margin-top: 2px;
+  padding: 2px 6px;
+  background: rgba(15, 16, 30, .82);
+  border: 2px solid var(--c-teal);
+  color: var(--c-cyan);
+}
+.node-habit.done { border-color: var(--c-green); color: var(--c-lime); }
+
+/* ---------- 習慣スタンプシート(シート内) ---------- */
+.habit-section { margin-bottom: 12px; }
+.habit-enable { width: 100%; font-size: 14px; }
+
+.habit-config {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.habit-config-txt { font-size: 14px; color: var(--c-grey); }
+.habit-seg { display: flex; border: 3px solid var(--c-dark); }
+.habit-seg .seg {
+  width: 42px;
+  padding: 8px 0;
+  font-size: 15px;
+  background: var(--c-night);
+  color: var(--c-grey);
+}
+.habit-seg .seg.on { background: var(--c-teal); color: #fff; }
+.habit-target { display: flex; align-items: center; border: 3px solid var(--c-dark); }
+.habit-target button {
+  width: 38px;
+  height: 38px;
+  font-size: 20px;
+  background: var(--c-blue);
+  color: #fff;
+}
+.habit-target-val { min-width: 34px; text-align: center; font-size: 18px; color: var(--c-gold); }
+.habit-off {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--c-slate);
+  text-decoration: underline;
+}
+
+.habit-summary {
+  font-size: 13px;
+  padding: 8px 10px;
+  background: var(--c-night);
+  border: 2px solid var(--c-teal);
+  color: var(--c-cyan);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.habit-summary.done { border-color: var(--c-green); color: var(--c-lime); }
+.habit-summary .habit-total { font-size: 11px; color: var(--c-grey); }
+
+.stamp-cal { background: var(--c-night); border: 3px solid var(--c-dark); padding: 8px; }
+.stamp-cal-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.stamp-cal-title { font-size: 14px; color: var(--c-gold); letter-spacing: 1px; }
+.stamp-nav-btn {
+  width: 40px;
+  height: 34px;
+  background: var(--c-dark);
+  border: 2px solid var(--c-slate);
+  color: var(--c-grey);
+  font-size: 13px;
+}
+
+.stamp-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.stamp-grid.with-week { grid-template-columns: repeat(7, 1fr) 1.3fr; }
+.stamp-head {
+  text-align: center;
+  font-size: 10px;
+  color: var(--c-slate);
+  padding: 2px 0;
+}
+.stamp-head.wk { color: var(--c-cyan); }
+.stamp-cell {
+  position: relative;
+  aspect-ratio: 1;
+  background: #222438;
+  border: 2px solid var(--c-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.stamp-cell.empty { background: transparent; border-color: transparent; }
+.stamp-cell.today { border-color: var(--c-gold); }
+.stamp-cell.future { opacity: .4; }
+.stamp-cell .stamp-num { font-size: 10px; color: var(--c-grey); }
+.stamp-cell.on .stamp-num { color: rgba(244, 244, 244, .5); }
+.stamp-cell .stamp-mark {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stamp-cell.on { background: #2e3350; }
+.stamp-week {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--c-slate);
+  background: #1c1e30;
+  border: 2px solid var(--c-dark);
+}
+.stamp-week.met { color: var(--c-lime); border-color: var(--c-green); background: #17301f; }
+
+/* ---------- 裏ゴールシートのステップ管理 ---------- */
+.secret-steps-box {
+  background: linear-gradient(180deg, #3a1a4a, #2b1a3a);
+  border: 3px solid #4a1f5d;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.secret-steps-title { font-size: 12px; color: #d9a0f0; margin-bottom: 10px; }
+.secret-steps-box .btn { width: 100%; }
+.secret-step-node .node-label { border-color: var(--c-violet); color: #d9a0f0; }
+.undo-link.danger { color: var(--c-red); display: block; margin-top: 14px; }
