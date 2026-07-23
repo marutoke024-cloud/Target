@@ -68,8 +68,11 @@ export async function renderHome(root) {
   } catch { /* 初回はストア未作成でも無視 */ }
   const blocks = 10;
   const filled = Math.min(blocks, Math.round((rest / need) * blocks));
+  const hp = player.hp ?? 100;
+  const hpFilled = Math.round(hp / 10);
+  const hpCls = hp <= 20 ? 'crit' : hp <= 40 ? 'low' : '';
   const dojoCard = el('button', { class: 'dojo-entry pixel-panel', onclick: () => { location.hash = '#training'; } },
-    el('span', { class: 'dojo-entry-sprite', html: spriteSVG('hero', { size: 44 }) }),
+    el('span', { class: `dojo-entry-sprite ${hp <= 20 ? 'weak' : ''}`, html: spriteSVG('hero', { size: 44 }) }),
     el('div', { class: 'dojo-entry-info' },
       el('div', { class: 'dojo-entry-title' }, '特訓部屋 ',
         el('span', { class: 'dojo-entry-lv' }, `Lv.${level}`),
@@ -77,6 +80,13 @@ export async function renderHome(root) {
       ),
       el('div', { class: 'pixbar xp-bar small' },
         Array.from({ length: blocks }, (_, i) => el('span', { class: i < filled ? 'xp-on' : '' }))
+      ),
+      el('div', { class: 'dojo-entry-hp' },
+        el('span', { class: 'dojo-hp-icon', html: spriteSVG('heart', { size: 12 }) }),
+        el('div', { class: `pixbar hp-gauge small ${hpCls}` },
+          Array.from({ length: 10 }, (_, i) => el('span', { class: i < hpFilled ? 'hp-on' : '' }))
+        ),
+        el('span', { class: `dojo-hp-pct ${hpCls}` }, `${hp}%`)
       )
     ),
     el('span', { class: 'dojo-entry-arrow' }, '▶')

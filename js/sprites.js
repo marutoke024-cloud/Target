@@ -222,6 +222,19 @@ const GRIDS = {
       '....DDD....'
     ]
   },
+  // ハート(プレイヤーHP表示・演出用)
+  heart: {
+    colors: { D: '#5d1020', R: '#b13e53', r: '#ff5566', W: '#ffd7dc' },
+    grid: [
+      '.RR.RR.',
+      'RrrRrrR',
+      'RrWrrrR',
+      'RrrrrrR',
+      '.RrrrR.',
+      '..RrR..',
+      '...R...'
+    ]
+  },
   // 特訓の敵スライム(HPを削って討伐する)
   slime: {
     colors: { D: '#0f3a1e', B: '#38b764', L: '#7bed9f', W: '#f4f4f4', K: '#0a1a10' },

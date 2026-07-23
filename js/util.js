@@ -120,8 +120,8 @@ export function rainConfetti(colors, count = 60) {
 }
 
 // 全画面バナー演出(アイコン+メイン文+サブ文)
-export function showBanner({ iconHtml = '', text = '', sub = '', purple = false, duration = 2100 }) {
-  const banner = el('div', { class: `clear-banner ${purple ? 'purple' : ''}` },
+export function showBanner({ iconHtml = '', text = '', sub = '', purple = false, cls = '', duration = 2100 }) {
+  const banner = el('div', { class: `clear-banner ${purple ? 'purple' : ''} ${cls}` },
     iconHtml ? el('div', { class: 'banner-star', html: iconHtml }) : null,
     el('div', { class: 'banner-text' }, text),
     sub ? el('div', { class: 'banner-sub' }, sub) : null

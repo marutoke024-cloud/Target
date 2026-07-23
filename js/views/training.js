@@ -7,14 +7,20 @@ import {
 import { spriteSVG } from '../sprites.js';
 
 const XP_PER_TASK = 15;   // 1回達成ごとに得るEXP
+const HP_HEAL = 10;       // 週/月の目標達成で回復するHP%
+const HP_DMG = 20;        // 週/月の目標未達成で受けるダメージHP%
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
-// ---- プレイヤー(レベル・経験値) ----
+// ---- プレイヤー(レベル・経験値・HP) ----
 export function loadPlayer() {
-  try { return JSON.parse(localStorage.getItem('qd-player')) || { xp: 0 }; }
-  catch { return { xp: 0 }; }
+  let p;
+  try { p = JSON.parse(localStorage.getItem('qd-player')) || {}; } catch { p = {}; }
+  if (typeof p.xp !== 'number') p.xp = 0;
+  if (typeof p.hp !== 'number') p.hp = 100;
+  return p;
 }
 function savePlayer(p) { localStorage.setItem('qd-player', JSON.stringify(p)); }
+function clampHp(v) { return Math.max(0, Math.min(100, v)); }
 
 function needFor(level) { return 30 + (level - 1) * 15; }
 export function levelFromXp(xp) {
@@ -84,8 +90,47 @@ export function isPending(task) {
   return task.lastDoneKey !== periodKey(r);
 }
 
+// 周期をまたいだ「週/月にn回」タスクのHP精算(未達成の周期はダメージ)。
+// 達成した周期は達成時に即回復済みなので、ここではダメージのみ扱う。
+export async function evaluateHp(tasks) {
+  const p = loadPlayer();
+  let hp = p.hp;
+  const events = [];
+  let hpChanged = false;
+
+  for (const task of tasks) {
+    if (!isCountRecur(task.recur)) continue;
+    const curKey = periodKey(task.recur);
+    let taskChanged = false;
+
+    if (!task.progress) { task.progress = { key: curKey, count: 0 }; taskChanged = true; }
+    // 既存タスク/作成直後の周期は据え置き(さかのぼって罰しない)
+    if (task.hpSettledKey == null) { task.hpSettledKey = task.progress.key; taskChanged = true; }
+
+    if (task.progress.key !== curKey) {
+      if (task.progress.key !== task.hpSettledKey) {
+        const achieved = task.progress.count >= task.recur.target;
+        if (!achieved) {
+          hp = clampHp(hp - HP_DMG);
+          hpChanged = true;
+          events.push({ name: task.name, count: task.progress.count, target: task.recur.target });
+        }
+      }
+      task.hpSettledKey = task.progress.key;
+      task.progress = { key: curKey, count: 0 };
+      task.healedKey = null;
+      taskChanged = true;
+    }
+    if (taskChanged) await putTask(task);
+  }
+
+  if (hpChanged) { p.hp = hp; savePlayer(p); }
+  return events;
+}
+
 export async function renderTraining(root) {
   let tasks = await getAllTasks();
+  const hpEvents = await evaluateHp(tasks); // 周期をまたいだ未達成のダメージ精算
 
   const heroPanel = el('div', { class: 'dojo-hero pixel-panel' });
   const pendingList = el('div', { class: 'dojo-list' });
@@ -103,21 +148,32 @@ export async function renderTraining(root) {
     return { before, after: levelFromXp(p.xp).level };
   }
 
-  function paintHero(animateGain) {
+  function paintHero(animateGain, hpFx) {
     const p = loadPlayer();
     const { level, rest, need } = levelFromXp(p.xp);
+    const hp = p.hp;
     heroPanel.innerHTML = '';
     const blocks = 12;
     const filled = Math.min(blocks, Math.round((rest / need) * blocks));
+    const hpBlocks = 10;
+    const hpFilled = Math.round(hp / 10);
+    const hpCls = hp <= 20 ? 'crit' : hp <= 40 ? 'low' : '';
     heroPanel.append(
       el('div', { class: 'dojo-hero-row' },
-        el('div', { class: `dojo-hero-sprite ${animateGain ? 'gain' : ''}`, html: spriteSVG('hero', { size: 56 }) }),
+        el('div', { class: `dojo-hero-sprite ${animateGain ? 'gain' : ''} ${hp <= 20 ? 'weak' : ''}`, html: spriteSVG('hero', { size: 56 }) }),
         el('div', { class: 'dojo-hero-info' },
           el('div', { class: 'dojo-level' }, `Lv.${level} `, el('span', { class: 'dojo-title-tag' }, titleFor(level))),
           el('div', { class: 'pixbar xp-bar' },
             Array.from({ length: blocks }, (_, i) => el('span', { class: i < filled ? 'xp-on' : '' }))
           ),
-          el('div', { class: 'dojo-xp-text' }, `EXP ${rest} / ${need}`)
+          el('div', { class: 'dojo-xp-text' }, `EXP ${rest} / ${need}`),
+          el('div', { class: 'dojo-hp-row' },
+            el('span', { class: 'dojo-hp-icon', html: spriteSVG('heart', { size: 14 }) }),
+            el('div', { class: `pixbar hp-gauge ${hpCls} ${hpFx || ''}` },
+              Array.from({ length: hpBlocks }, (_, i) => el('span', { class: i < hpFilled ? 'hp-on' : '' }))
+            ),
+            el('span', { class: `dojo-hp-pct ${hpCls}` }, `${hp}%`)
+          )
         )
       )
     );
@@ -220,6 +276,13 @@ export async function renderTraining(root) {
           if (isCount) {
             const key = periodKey(task.recur);
             task.progress = { key, count: Math.max(0, task.recur.target - 1) };
+            // 達成による回復を取り消す(この周期で回復していた場合)
+            if (task.healedKey === key) {
+              task.healedKey = null;
+              const pl = loadPlayer();
+              pl.hp = clampHp(pl.hp - HP_HEAL);
+              savePlayer(pl);
+            }
           } else if (task.recur) {
             task.lastDoneKey = null;
           } else {
@@ -261,7 +324,17 @@ export async function renderTraining(root) {
     task.progress.count++;
     const count = task.progress.count;
     const defeated = count >= target;
-    if (defeated) { task.doneAt = Date.now(); task.doneCount = (task.doneCount || 0) + 1; }
+    let healed = false;
+    if (defeated) {
+      task.doneAt = Date.now();
+      task.doneCount = (task.doneCount || 0) + 1;
+      // 目標達成でHP回復(この周期でまだ回復していなければ)
+      if (task.healedKey !== key) {
+        task.healedKey = key;
+        const pl = loadPlayer();
+        if (pl.hp < 100) { pl.hp = clampHp(pl.hp + HP_HEAL); savePlayer(pl); healed = true; }
+      }
+    }
     const { before, after } = addXp(XP_PER_TASK);
     await putTask(task);
 
@@ -283,7 +356,8 @@ export async function renderTraining(root) {
 
     if (defeated) {
       enemy.classList.add('dead');
-      toast('討伐! 敵をたおした!');
+      toast(healed ? `討伐! 目標達成で HP +${HP_HEAL}% 回復!` : '討伐! 敵をたおした!');
+      if (healed) paintHero(false, 'heal');
       setTimeout(() => {
         card.classList.add('slashed');
         setTimeout(() => { paintLists(); if (after > before) levelUpBanner(after); }, 600);
@@ -413,4 +487,20 @@ export async function renderTraining(root) {
   );
   paintHero(false);
   paintLists();
+
+  // 周期をまたいで未達成だった特訓のダメージを演出
+  if (hpEvents.length) {
+    haptic([40, 60, 40]);
+    const names = hpEvents.map((e) => `「${e.name}」(${e.count}/${e.target})`).join('・');
+    setTimeout(() => {
+      paintHero(false, 'damage');
+      showBanner({
+        iconHtml: `<div class="dmg-heart">${spriteSVG('heart', { size: 90 })}</div>`,
+        text: `HP -${hpEvents.length * HP_DMG}% ダメージ!`,
+        sub: `未達成: ${names}`,
+        cls: 'danger',
+        duration: 2800
+      });
+    }, 500);
+  }
 }
