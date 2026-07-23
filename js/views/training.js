@@ -45,7 +45,20 @@ export function titleFor(level) {
 function dkey(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-function startOfWeek(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); x.setDate(x.getDate() - x.getDay()); return x; }
+// 週の起点は月曜(週明けの月曜が更新日)
+function startOfWeek(d) {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); // 月曜まで戻す
+  return x;
+}
+function weekKey(now = new Date()) { return 'W' + dkey(startOfWeek(now)); }
+function monthKey(now = new Date()) { return `N${now.getFullYear()}-${now.getMonth() + 1}`; }
+// HP精算の周期キー(毎日/週にn回は週=月曜、月にn回は月)
+function hpPeriodKey(recur, now = new Date()) {
+  return recur.type === 'monthN' ? monthKey(now) : weekKey(now);
+}
+function isHpRecur(recur) { return !!recur && (recur.type === 'daily' || recur.type === 'weekN' || recur.type === 'monthN'); }
 
 // 回数タイプ(週にn回/月にn回)か?
 function isCountRecur(recur) { return !!recur && (recur.type === 'weekN' || recur.type === 'monthN'); }
@@ -58,8 +71,8 @@ function periodKey(recur, now = new Date()) {
     x.setDate(x.getDate() - ((x.getDay() - recur.day + 7) % 7));
     return 'w' + dkey(x);
   }
-  if (recur.type === 'weekN') return 'W' + dkey(startOfWeek(now));       // 今週(日曜始まり)
-  if (recur.type === 'monthN') return `N${now.getFullYear()}-${now.getMonth() + 1}`; // 今月
+  if (recur.type === 'weekN') return weekKey(now);                      // 今週(月曜始まり)
+  if (recur.type === 'monthN') return monthKey(now);                    // 今月
   return `m${now.getFullYear()}-${now.getMonth() + 1}`;                  // 月初リセット
 }
 
@@ -94,53 +107,76 @@ export function isPending(task) {
   return task.lastDoneKey !== periodKey(r);
 }
 
-// 周期をまたいだ「週/月にn回」タスクのHP精算(未達成の周期はダメージ)。
-// 達成した周期は達成時に即回復済みなので、ここではダメージのみ扱う。
+// 週明けの月曜(月にn回は月初)に周期を精算する。
+// - 毎日 : その週を7日クリアで達成(回復/ダメージは半減: +5 / -10)
+// - 週/月にn回 : 目標回数で達成(+10 / -20)
+// 達成でHP回復、未達成でダメージ。あわせて各タスクの継続ストリークを更新する。
 export async function evaluateHp(tasks) {
   const p = loadPlayer();
   let hp = p.hp;
-  const events = [];
-  let hpChanged = false;
+  let hpChanged = false, dmgOccurred = false;
+  const dmgEvents = [], healEvents = [];
 
   for (const task of tasks) {
-    if (!isCountRecur(task.recur)) continue;
-    const curKey = periodKey(task.recur);
-    let taskChanged = false;
+    const r = task.recur;
+    if (!r) continue; // 1回きりは対象外
+    let changed = false;
 
-    if (!task.progress) { task.progress = { key: curKey, count: 0 }; taskChanged = true; }
-    // 既存タスク/作成直後の周期は据え置き(さかのぼって罰しない)
-    if (task.hpSettledKey == null) { task.hpSettledKey = task.progress.key; taskChanged = true; }
+    if (isHpRecur(r)) {
+      const isDaily = r.type === 'daily';
+      const store = isDaily ? 'hpWeek' : 'progress';
+      const curKey = hpPeriodKey(r);
+      if (!task[store]) { task[store] = isDaily ? { key: curKey, days: [] } : { key: curKey, count: 0 }; changed = true; }
+      if (task.hpSettledKey == null) { task.hpSettledKey = task[store].key; changed = true; }
 
-    if (task.progress.key !== curKey) {
-      if (task.progress.key !== task.hpSettledKey) {
-        const achieved = task.progress.count >= task.recur.target;
-        if (!achieved) {
-          hp = clampHp(hp - HP_DMG);
-          hpChanged = true;
-          events.push({ name: task.name, count: task.progress.count, target: task.recur.target });
+      if (task[store].key !== curKey) {
+        const prev = task[store];
+        // 作成直後の中途半端な周期はさかのぼって精算しない
+        if (prev.key !== task.hpSettledKey) {
+          const achieved = isDaily ? (prev.days ? prev.days.length : 0) >= 7 : (prev.count || 0) >= r.target;
+          const heal = isDaily ? Math.round(HP_HEAL / 2) : HP_HEAL;
+          const dmg = isDaily ? Math.round(HP_DMG / 2) : HP_DMG;
+          if (achieved) {
+            if (hp < 100) { hp = clampHp(hp + heal); hpChanged = true; healEvents.push({ name: task.name, delta: heal }); }
+            task.streak = (task.streak || 0) + 1;
+          } else {
+            hp = clampHp(hp - dmg); hpChanged = true; dmgOccurred = true;
+            dmgEvents.push({ name: task.name, delta: dmg });
+            task.streak = 0;
+          }
         }
+        task.hpSettledKey = prev.key;
+        task[store] = isDaily ? { key: curKey, days: [] } : { key: curKey, count: 0 };
+        changed = true;
       }
-      task.hpSettledKey = task.progress.key;
-      task.progress = { key: curKey, count: 0 };
-      task.healedKey = null;
-      taskChanged = true;
+    } else {
+      // 毎週(曜日)/月初: HPは無し、ストリークのみ更新
+      const curKey = periodKey(r);
+      if (task.streakKey == null) { task.streakKey = curKey; changed = true; }
+      if (task.streakKey !== curKey) {
+        const achieved = task.lastDoneKey === task.streakKey;
+        task.streak = achieved ? (task.streak || 0) + 1 : 0;
+        task.streakKey = curKey;
+        changed = true;
+      }
     }
-    if (taskChanged) await putTask(task);
+
+    if (changed) await putTask(task);
   }
 
   if (hpChanged) {
     p.hp = hp;
-    p.noDmgSince = Date.now(); // ダメージで無傷継続はリセット
+    if (dmgOccurred) p.noDmgSince = Date.now(); // ダメージで無傷継続はリセット
     savePlayer(p);
   }
-  return events;
+  return { dmgEvents, healEvents };
 }
 
 // 半年ノーダメージ達成で金の宝箱を付与する
 export function checkGoldChest(tasks) {
   const p = loadPlayer();
-  const hasRecurCount = tasks.some((t) => isCountRecur(t.recur));
-  if (!hasRecurCount) return false;
+  const hasHpTask = tasks.some((t) => isHpRecur(t.recur));
+  if (!hasHpTask) return false;
   if (Date.now() - p.noDmgSince >= NO_DMG_GOAL_DAYS * DAY_MS) {
     p.goldChests += 1;
     p.noDmgSince = Date.now(); // 次の半年へ
@@ -153,7 +189,7 @@ export function checkGoldChest(tasks) {
 export async function renderTraining(root) {
   let tasks = await getAllTasks();
   savePlayer(loadPlayer()); // 無傷継続などの初期フィールドを永続化
-  const hpEvents = await evaluateHp(tasks);  // 未達成のダメージ精算
+  const { dmgEvents, healEvents } = await evaluateHp(tasks); // 月曜チェックでHP精算
   const goldWin = checkGoldChest(tasks);     // 半年ノーダメージ達成判定
 
   const heroPanel = el('div', { class: 'dojo-hero pixel-panel' });
@@ -254,6 +290,13 @@ export async function renderTraining(root) {
     doneWrap.querySelector('summary').textContent = `クリアした特訓 (${done.length})`;
   }
 
+  // ストリーク(継続数)バッジ
+  function streakBadge(task) {
+    if (!task.streak) return null;
+    const unit = task.recur?.type === 'daily' ? '日' : '';
+    return el('span', { class: 'dojo-streak', title: `${task.streak}連続クリア` }, `🔥${task.streak}${unit}`);
+  }
+
   // ---- 未クリアのカード ----
   function taskCard(task) {
     if (isCountRecur(task.recur)) return countCard(task);
@@ -262,6 +305,7 @@ export async function renderTraining(root) {
       el('button', { class: 'dojo-task-body', onclick: () => openTaskSheet(task) },
         el('span', { class: 'dojo-task-icon', html: spriteSVG('rock', { size: 30 }) }),
         el('span', { class: 'dojo-task-name' }, task.name),
+        streakBadge(task),
         el('span', { class: `dojo-recur ${task.recur ? 'on' : ''}` }, recurLabel(task.recur))
       ),
       el('button', {
@@ -291,6 +335,7 @@ export async function renderTraining(root) {
         el('div', { class: 'dojo-count-info' },
           el('div', { class: 'dojo-count-top' },
             el('span', { class: 'dojo-task-name' }, task.name),
+            streakBadge(task),
             el('span', { class: 'dojo-recur on' }, recurLabel(task.recur))
           ),
           el('div', { class: 'hp-row' }, hpBar, hpLabel)
@@ -323,13 +368,12 @@ export async function renderTraining(root) {
           if (isCount) {
             const key = periodKey(task.recur);
             task.progress = { key, count: Math.max(0, task.recur.target - 1) };
-            // 達成による回復を取り消す(この周期で回復していた場合)
-            if (task.healedKey === key) {
-              task.healedKey = null;
-              const pl = loadPlayer();
-              pl.hp = clampHp(pl.hp - HP_HEAL);
-              savePlayer(pl);
-            }
+          } else if (task.recur && task.recur.type === 'daily') {
+            // 今日の達成を取り消す(週内の達成日とストリークを戻す)
+            const today = dkey(new Date());
+            if (task.hpWeek) task.hpWeek.days = (task.hpWeek.days || []).filter((d) => d !== today);
+            task.streak = Math.max(0, (task.streak || 0) - 1);
+            task.lastDoneKey = null;
           } else if (task.recur) {
             task.lastDoneKey = null;
           } else {
@@ -346,10 +390,22 @@ export async function renderTraining(root) {
 
   // ---- 単発クリア(1回きり/毎日/毎週曜日/月初) ----
   async function completeSingle(task, card) {
+    const now = new Date();
+    const prevDone = task.lastDoneKey; // 上書き前(毎日ストリーク計算用)
     const { before, after } = addXp(XP_PER_TASK);
     task.doneAt = Date.now();
     if (task.recur) task.lastDoneKey = periodKey(task.recur);
     task.doneCount = (task.doneCount || 0) + 1;
+
+    // 毎日: HP用に週内の達成日を記録 + 連続日数ストリーク
+    if (task.recur && task.recur.type === 'daily') {
+      const wk = weekKey(now);
+      if (!task.hpWeek || task.hpWeek.key !== wk) task.hpWeek = { key: wk, days: [] };
+      const today = dkey(now);
+      if (!task.hpWeek.days.includes(today)) task.hpWeek.days.push(today);
+      const yKey = 'd' + dkey(new Date(now.getTime() - DAY_MS));
+      task.streak = (prevDone === yKey) ? (task.streak || 0) + 1 : 1;
+    }
     await putTask(task);
 
     haptic([16, 40, 24]);
@@ -371,16 +427,9 @@ export async function renderTraining(root) {
     task.progress.count++;
     const count = task.progress.count;
     const defeated = count >= target;
-    let healed = false;
     if (defeated) {
       task.doneAt = Date.now();
       task.doneCount = (task.doneCount || 0) + 1;
-      // 目標達成でHP回復(この周期でまだ回復していなければ)
-      if (task.healedKey !== key) {
-        task.healedKey = key;
-        const pl = loadPlayer();
-        if (pl.hp < 100) { pl.hp = clampHp(pl.hp + HP_HEAL); savePlayer(pl); healed = true; }
-      }
     }
     const { before, after } = addXp(XP_PER_TASK);
     await putTask(task);
@@ -403,8 +452,7 @@ export async function renderTraining(root) {
 
     if (defeated) {
       enemy.classList.add('dead');
-      toast(healed ? `討伐! 目標達成で HP +${HP_HEAL}% 回復!` : '討伐! 敵をたおした!');
-      if (healed) paintHero(false, 'heal');
+      toast('討伐! 今週の目標達成!(月曜にHP回復)');
       setTimeout(() => {
         card.classList.add('slashed');
         setTimeout(() => { paintLists(); if (after > before) levelUpBanner(after); }, 600);
@@ -470,7 +518,9 @@ export async function renderTraining(root) {
 
       recurBox.append(el('div', { class: 'field-help' },
         isCountRecur(recur)
-          ? `${recurLabel(recur)}が目標。1回ごとに⚔を押して 敵のHPを削り、${recur.target}回で討伐(クリア)。`
+          ? `${recurLabel(recur)}が目標。1回ごとに⚔を押して敵のHPを削り、${recur.target}回で討伐。毎週明けの月曜に判定し、達成でHP+${HP_HEAL}%・未達成で-${HP_DMG}%。`
+          : recur?.type === 'daily'
+          ? `毎日リストに出現。月曜の判定で、その週を7日クリアでHP+${Math.round(HP_HEAL / 2)}%、崩すと-${Math.round(HP_DMG / 2)}%(毎日は半減)。`
           : recur ? `${recurLabel(recur)} にリストへ出現する。`
           : 'クリアすると完了済みへ移動する。'));
     }
@@ -537,19 +587,26 @@ export async function renderTraining(root) {
   paintHero(false);
   paintLists();
 
-  // 周期をまたいで未達成だった特訓のダメージを演出
-  if (hpEvents.length) {
+  // 月曜チェックの精算を演出(ダメージ優先、なければ回復)
+  const totalDmg = dmgEvents.reduce((s, e) => s + e.delta, 0);
+  const totalHeal = healEvents.reduce((s, e) => s + e.delta, 0);
+  if (dmgEvents.length) {
     haptic([40, 60, 40]);
-    const names = hpEvents.map((e) => `「${e.name}」(${e.count}/${e.target})`).join('・');
+    const names = dmgEvents.map((e) => `「${e.name}」`).join('・');
     setTimeout(() => {
       paintHero(false, 'damage');
       showBanner({
         iconHtml: `<div class="dmg-heart">${spriteSVG('heart', { size: 90 })}</div>`,
-        text: `HP -${hpEvents.length * HP_DMG}% ダメージ!`,
-        sub: `未達成: ${names}`,
+        text: `HP -${totalDmg}% ダメージ!`,
+        sub: `先週の未達成: ${names}`,
         cls: 'danger',
         duration: 2800
       });
+    }, 500);
+  } else if (healEvents.length && totalHeal > 0) {
+    setTimeout(() => {
+      paintHero(false, 'heal');
+      toast(`先週の目標達成! HP +${totalHeal}% 回復`);
     }, 500);
   }
 
@@ -564,6 +621,6 @@ export async function renderTraining(root) {
         sub: '金の宝箱をGETした!',
         duration: 3200
       });
-    }, hpEvents.length ? 3200 : 500);
+    }, dmgEvents.length ? 3200 : 900);
   }
 }

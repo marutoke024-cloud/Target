@@ -1150,6 +1150,16 @@ input, textarea {
   padding: 2px 6px;
 }
 .dojo-recur.on { color: var(--c-cyan); border-color: var(--c-teal); }
+.dojo-streak {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--c-orange);
+  background: rgba(239, 125, 87, .12);
+  border: 2px solid var(--c-orange);
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+.dojo-count-top .dojo-streak { font-size: 10px; }
 .dojo-complete {
   width: 64px;
   flex-shrink: 0;

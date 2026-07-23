@@ -180,6 +180,11 @@ export async function renderMap(root, mapId) {
       progressEl
     ),
     el('button', {
+      class: 'icon-btn',
+      'aria-label': 'ダンジョンを編集',
+      onclick: openMapEdit
+    }, '✎'),
+    el('button', {
       class: 'icon-btn record-btn',
       'aria-label': '記録帳をひらく',
       html: spriteSVG('book', { size: 26 }),
@@ -336,6 +341,59 @@ export async function renderMap(root, mapId) {
   }
 
   // ---- ステップ / 裏ステップのシート ----
+  // ---- ダンジョンの編集(ゴール名・裏ゴール・ステップ追加) ----
+  function openMapEdit() {
+    const goalInput = el('input', { type: 'text', maxlength: 60, value: map.goal.name });
+    const secretInput = el('input', { type: 'text', maxlength: 60, value: map.secretGoal?.name || '', placeholder: '空欄にすると裏ゴールなし' });
+
+    const body = [
+      el('div', { class: 'sheet-head' },
+        el('span', { html: spriteSVG('chestClosed', { size: 40 }) }),
+        el('div', {}, el('div', { class: 'sheet-kind gold' }, 'ダンジョンを編集'))
+      ),
+      el('div', { class: 'field-label' }, 'ゴール名(目標)'),
+      goalInput,
+      el('div', { class: 'field-label', style: 'margin-top:12px' }, '裏ゴール名(裏目標)'),
+      secretInput,
+      el('div', { class: 'field-help' }, '裏ゴールを新設・改名できる。空欄で保存すると裏ゴール(と裏ステップ)は削除される。'),
+      el('button', {
+        class: 'btn btn-ghost btn-big', style: 'margin-top:6px',
+        onclick: async () => {
+          // 入力中のゴール名も一緒に保存してからステップを追加
+          map.goal.name = goalInput.value.trim() || map.goal.name;
+          const sName = secretInput.value.trim();
+          if (sName) {
+            if (map.secretGoal) map.secretGoal.name = sName;
+            else map.secretGoal = { name: sName, memo: '', imageId: null, openedAt: null };
+          }
+          map.steps.push({ id: uid(), name: `STEP ${map.steps.length + 1}`, memo: '', imageId: null, clearedAt: null, habit: null, stamps: [] });
+          await putMap(map);
+          closeSheet();
+          rerender();
+        }
+      }, '＋ 通常ステップを追加'),
+      el('button', {
+        class: 'btn btn-gold btn-big',
+        onclick: async () => {
+          map.goal.name = goalInput.value.trim() || map.goal.name;
+          const sName = secretInput.value.trim();
+          if (sName) {
+            if (map.secretGoal) map.secretGoal.name = sName;
+            else map.secretGoal = { name: sName, memo: '', imageId: null, openedAt: null };
+          } else if (map.secretGoal) {
+            if (!(await confirmDialog('裏ゴールを削除する?\n裏ステップもすべて消えます。', { okText: '削除する', danger: true }))) return;
+            map.secretGoal = null;
+            map.secretSteps = [];
+          }
+          await putMap(map);
+          closeSheet();
+          rerender();
+        }
+      }, '保存する')
+    ];
+    openSheet(body);
+  }
+
   function openStepSheet(step, kind, index) {
     const isSecret = kind === 'secretStep';
     const point = stepPts.get(step.id);
@@ -420,6 +478,22 @@ export async function renderMap(root, mapId) {
         onclick: async () => {
           if (!(await confirmDialog(`裏STEP「${step.name}」を削除する?`, { okText: '削除する', danger: true }))) return;
           map.secretSteps = map.secretSteps.filter((s) => s.id !== step.id);
+          if (map.lastNodeId === step.id) map.lastNodeId = null;
+          await putMap(map);
+          closeSheet();
+          rerender();
+        }
+      }, 'このステップを削除'));
+    } else if (map.steps.length > 1) {
+      body.push(el('button', {
+        class: 'undo-link danger',
+        onclick: async () => {
+          if (!(await confirmDialog(`STEP「${step.name}」を削除する?`, { okText: '削除する', danger: true }))) return;
+          map.steps = map.steps.filter((s) => s.id !== step.id);
+          // このステップより後ろにあったご褒美マスのインデックスを繰り上げ
+          map.rewards = map.rewards
+            .filter((r) => r.afterIndex !== index)
+            .map((r) => ({ ...r, afterIndex: r.afterIndex > index ? r.afterIndex - 1 : r.afterIndex }));
           if (map.lastNodeId === step.id) map.lastNodeId = null;
           await putMap(map);
           closeSheet();
