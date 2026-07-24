@@ -1,8 +1,9 @@
-// ホーム画面: 実績の星棚 + 武具コレクション + 特訓部屋 + ダンジョンマップ一覧
+// ホーム画面: 武具コレクション(実績) + 装備 + 特訓部屋 + ダンジョンマップ一覧
 import { getAllMaps, deleteMap, putMap, getAllTasks } from '../db.js';
 import { el, confirmDialog, toast } from '../util.js';
 import { spriteSVG } from '../sprites.js';
-import { gearSVG, gearName, gearTier, rollLoot } from '../gear.js';
+import { GEAR, gearSVG, gearName, gearTier, rollLoot } from '../gear.js';
+import { avatarSVG } from '../avatar.js';
 import { loadPlayer, levelFromXp, titleFor } from './training.js';
 
 let showLocked = false; // 施錠ダンジョンの表示状態(セッション中のみ保持)
@@ -18,48 +19,42 @@ export async function renderHome(root) {
     if (changed) await putMap(map);
   }
 
-  const goldStars = maps.filter((m) => m.goal.openedAt);
-  const purpleStars = maps.filter((m) => m.secretGoal && m.secretGoal.openedAt);
-
-  // 取得済みの武具(取得順)
+  // 取得済みの武具(取得順)= 実績一覧
   const loot = [];
+  const ownedSet = new Set();
   for (const m of maps) {
-    if (m.goal.openedAt && m.goal.lootId) loot.push({ id: m.goal.lootId, at: m.goal.openedAt, from: m.goal.name });
-    if (m.secretGoal?.openedAt && m.secretGoal.lootId) loot.push({ id: m.secretGoal.lootId, at: m.secretGoal.openedAt, from: m.goal.name });
+    if (m.goal.openedAt && m.goal.lootId) { loot.push({ id: m.goal.lootId, at: m.goal.openedAt, from: m.goal.name }); ownedSet.add(m.goal.lootId); }
+    if (m.secretGoal?.openedAt && m.secretGoal.lootId) { loot.push({ id: m.secretGoal.lootId, at: m.secretGoal.openedAt, from: m.goal.name }); ownedSet.add(m.secretGoal.lootId); }
   }
   loot.sort((a, b) => a.at - b.at);
 
-  const shelf = el('section', { class: 'star-shelf pixel-panel' },
-    el('div', { class: 'star-shelf-title' },
-      el('span', { html: spriteSVG('starGold', { size: 18 }) }),
-      `じっせき  金の星 ×${goldStars.length}  紫の星 ×${purpleStars.length}`
+  const player = loadPlayer();
+
+  // 武具コレクション(実績)+ 装備アバター
+  const shelf = el('section', { class: 'gear-shelf pixel-panel' },
+    el('button', { class: 'gear-shelf-avatar', 'aria-label': '装備を変更', onclick: () => { location.hash = '#equip'; } },
+      el('div', { class: 'gear-avatar-frame', html: avatarSVG(player.equip, 68) }),
+      el('span', { class: 'gear-avatar-tag' }, 'そうび ▸')
     ),
-    el('div', { class: 'star-shelf-row' },
-      (goldStars.length === 0 && purpleStars.length === 0)
-        ? el('span', { class: 'star-shelf-empty' }, 'ゴールの宝箱をあけると ここに星がならぶ')
-        : [
-            ...goldStars.map((m) => shelfStar(m, 'gold')),
-            ...purpleStars.map((m) => shelfStar(m, 'purple'))
-          ]
-    ),
-    el('div', { class: 'gear-shelf-title' },
-      el('span', { class: 'gear-shelf-icon', html: gearSVG('iron_sword', 16) }),
-      'そうびコレクション'
-    ),
-    el('div', { class: 'gear-shelf-row' },
-      loot.length === 0
-        ? el('span', { class: 'star-shelf-empty' }, '宝箱から伝説の武具が手に入る…')
-        : loot.map((l) => el('span', {
-            class: `gear-item ${gearTier(l.id)}`,
-            title: `${gearName(l.id)}(${l.from})`,
-            onclick: () => toast(`${gearName(l.id)} - 「${l.from}」の宝箱から入手`),
-            html: gearSVG(l.id, 34)
-          }))
+    el('div', { class: 'gear-shelf-main' },
+      el('div', { class: 'gear-shelf-title' },
+        el('span', { class: 'gear-shelf-icon', html: gearSVG('iron_sword', 16) }),
+        `武具コレクション  ${ownedSet.size}/${Object.keys(GEAR).length}`
+      ),
+      el('div', { class: 'gear-shelf-row' },
+        loot.length === 0
+          ? el('span', { class: 'star-shelf-empty' }, '宝箱から伝説の武具が手に入る…')
+          : loot.map((l) => el('span', {
+              class: `gear-item ${gearTier(l.id)}`,
+              title: `${gearName(l.id)}(${l.from})`,
+              onclick: () => toast(`${gearName(l.id)} - 「${l.from}」の宝箱から入手`),
+              html: gearSVG(l.id, 30)
+            }))
+      )
     )
   );
 
   // 特訓部屋の入口
-  const player = loadPlayer();
   const { level, rest, need } = levelFromXp(player.xp);
   let pendingCount = 0;
   try {
@@ -72,7 +67,7 @@ export async function renderHome(root) {
   const hpFilled = Math.round(hp / 10);
   const hpCls = hp <= 20 ? 'crit' : hp <= 40 ? 'low' : '';
   const dojoCard = el('button', { class: 'dojo-entry pixel-panel', onclick: () => { location.hash = '#training'; } },
-    el('span', { class: `dojo-entry-sprite ${hp <= 20 ? 'weak' : ''}`, html: spriteSVG('hero', { size: 44 }) }),
+    el('span', { class: `dojo-entry-sprite ${hp <= 20 ? 'weak' : ''}`, html: avatarSVG(player.equip, 44) }),
     el('div', { class: 'dojo-entry-info' },
       el('div', { class: 'dojo-entry-title' }, '特訓部屋 ',
         el('span', { class: 'dojo-entry-lv' }, `Lv.${level}`),
@@ -142,17 +137,6 @@ export async function renderHome(root) {
       list
     ),
     el('button', { class: 'fab', 'aria-label': '新しいマップを作る', onclick: () => { location.hash = '#new'; } }, '+')
-  );
-}
-
-function shelfStar(map, kind) {
-  return el('div', { class: `shelf-star ${kind}` },
-    el('button', {
-      title: map.goal.name,
-      'aria-label': map.goal.name,
-      onclick: () => { location.hash = `#map/${map.id}`; },
-      html: spriteSVG(kind === 'gold' ? 'starGold' : 'starPurple', { size: 34 })
-    })
   );
 }
 

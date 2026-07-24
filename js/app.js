@@ -3,6 +3,7 @@ import { renderHome } from './views/home.js';
 import { renderWizard } from './views/wizard.js';
 import { renderMap } from './views/map.js';
 import { renderTraining } from './views/training.js';
+import { renderEquip } from './views/equip.js';
 
 const app = document.getElementById('app');
 
@@ -17,6 +18,8 @@ async function route() {
     renderWizard(app);
   } else if (hash === '#training') {
     await renderTraining(app);
+  } else if (hash === '#equip') {
+    await renderEquip(app);
   } else {
     await renderHome(app);
   }

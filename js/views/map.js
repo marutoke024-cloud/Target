@@ -6,6 +6,8 @@ import {
 } from '../util.js';
 import { spriteSVG, gemSVG } from '../sprites.js';
 import { gearSVG, gearName, rollLoot } from '../gear.js';
+import { avatarSVG } from '../avatar.js';
+import { loadPlayer } from './training.js';
 import { openRecords } from './records.js';
 
 const GAP = 132;          // ステップ間の縦距離
@@ -168,7 +170,7 @@ export async function renderMap(root, mapId) {
     world.append(secretNode);
   }
 
-  const hero = el('div', { class: 'hero-sprite', html: spriteSVG('hero', { size: 34 }) });
+  const hero = el('div', { class: 'hero-sprite', html: avatarSVG(loadPlayer().equip, 40) });
   world.append(hero);
 
   const progressEl = el('div', { class: 'map-header-progress' });

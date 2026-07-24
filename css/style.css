@@ -1000,6 +1000,86 @@ input, textarea {
 .gear-item.normal { filter: drop-shadow(0 0 4px rgba(148, 176, 194, .5)); }
 .gear-item.luxe { border-color: var(--c-violet); filter: drop-shadow(0 0 7px rgba(176, 106, 212, .8)); }
 
+/* 武具コレクション枠(アバター + 一覧) */
+.gear-shelf {
+  padding: 14px;
+  margin-bottom: 20px;
+  background: linear-gradient(180deg, #232645, var(--c-navy));
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+.gear-shelf-avatar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: var(--c-night);
+  border: 3px solid var(--c-slate);
+  padding: 8px 10px;
+  box-shadow: 0 3px 0 rgba(0, 0, 0, .5);
+}
+.gear-shelf-avatar:active { transform: translateY(2px); box-shadow: none; }
+.gear-avatar-frame { display: flex; align-items: center; justify-content: center; min-height: 64px; }
+.gear-avatar-tag { font-size: 10px; color: var(--c-gold); letter-spacing: 1px; }
+.gear-shelf-main { flex: 1; min-width: 0; }
+
+/* 装備画面 */
+.equip {
+  min-height: 100vh;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(14px + var(--safe-top)) 16px calc(40px + var(--safe-bottom));
+}
+.equip-stage {
+  padding: 18px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(180deg, #232645, var(--c-navy));
+}
+.equip-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 130px;
+  filter: drop-shadow(0 0 10px rgba(115, 239, 247, .3));
+}
+.equip-count { font-size: 12px; color: var(--c-grey); }
+.equip-slots { display: flex; flex-direction: column; gap: 16px; }
+.equip-slot { background: var(--c-navy); border: 3px solid var(--c-dark); box-shadow: 0 0 0 3px var(--c-slate); padding: 12px; }
+.equip-slot-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.equip-slot-label {
+  font-size: 13px;
+  color: var(--c-cyan);
+  background: var(--c-night);
+  border: 2px solid var(--c-teal);
+  padding: 3px 10px;
+}
+.equip-slot-cur { font-size: 13px; color: var(--c-gold); }
+.equip-slot-none { font-size: 12px; color: var(--c-slate); }
+.equip-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.equip-empty { font-size: 12px; color: var(--c-slate); }
+.equip-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 84px;
+  padding: 8px 4px;
+  background: var(--c-night);
+  border: 3px solid var(--c-dark);
+}
+.equip-item.on { border-color: var(--c-gold); box-shadow: 0 0 8px rgba(255, 205, 117, .6); }
+.equip-item.luxe { border-color: var(--c-violet); }
+.equip-item.luxe.on { border-color: var(--c-gold); }
+.equip-item-name { font-size: 10px; line-height: 1.3; text-align: center; color: var(--c-white); }
+.equip-item.off { width: 60px; justify-content: center; color: var(--c-grey); font-size: 13px; padding: 14px 4px; }
+.equip-item.off.on { border-color: var(--c-gold); color: var(--c-gold); }
+
 /* ---------- 特訓部屋の入口(ホーム) ---------- */
 .dojo-entry {
   width: 100%;

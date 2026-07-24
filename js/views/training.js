@@ -5,6 +5,7 @@ import {
   openSheet, closeSheet, rainConfetti, showBanner
 } from '../util.js';
 import { spriteSVG } from '../sprites.js';
+import { avatarSVG } from '../avatar.js';
 
 const XP_PER_TASK = 15;   // 1回達成ごとに得るEXP
 const HP_HEAL = 10;       // 週/月の目標達成で回復するHP%
@@ -21,8 +22,10 @@ export function loadPlayer() {
   if (typeof p.hp !== 'number') p.hp = 100;
   if (typeof p.goldChests !== 'number') p.goldChests = 0;
   if (typeof p.noDmgSince !== 'number') p.noDmgSince = Date.now();
+  if (!p.equip || typeof p.equip !== 'object') p.equip = { weapon: null, head: null, body: null, shield: null };
   return p;
 }
+export function savePlayerState(p) { localStorage.setItem('qd-player', JSON.stringify(p)); }
 function savePlayer(p) { localStorage.setItem('qd-player', JSON.stringify(p)); }
 function clampHp(v) { return Math.max(0, Math.min(100, v)); }
 
@@ -220,7 +223,7 @@ export async function renderTraining(root) {
     const hpCls = hp <= 20 ? 'crit' : hp <= 40 ? 'low' : '';
     heroPanel.append(
       el('div', { class: 'dojo-hero-row' },
-        el('div', { class: `dojo-hero-sprite ${animateGain ? 'gain' : ''} ${hp <= 20 ? 'weak' : ''}`, html: spriteSVG('hero', { size: 56 }) }),
+        el('div', { class: `dojo-hero-sprite ${animateGain ? 'gain' : ''} ${hp <= 20 ? 'weak' : ''}`, html: avatarSVG(p.equip, 56) }),
         el('div', { class: 'dojo-hero-info' },
           el('div', { class: 'dojo-level' }, `Lv.${level} `, el('span', { class: 'dojo-title-tag' }, titleFor(level))),
           el('div', { class: 'pixbar xp-bar' },
@@ -266,7 +269,7 @@ export async function renderTraining(root) {
     haptic([30, 60, 30, 60, 60]);
     rainConfetti(['#ffcd75', '#73eff7', '#a7f070', '#f4f4f4', '#ff5d8f'], 70);
     showBanner({
-      iconHtml: `<div class="levelup-hero">${spriteSVG('hero', { size: 100 })}</div>`,
+      iconHtml: `<div class="levelup-hero">${avatarSVG(loadPlayer().equip, 100)}</div>`,
       text: 'LEVEL UP!',
       sub: `Lv.${after} ${titleFor(after)} になった!`,
       duration: 2600
