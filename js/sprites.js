@@ -222,6 +222,25 @@ const GRIDS = {
       '....DDD....'
     ]
   },
+  // 勲章メダル(資格・称号) リボン+金メダル
+  medal: {
+    colors: { R: '#b13e53', r: '#d95763', D: '#8a5a00', G: '#ffcd75', g: '#e8a33d', W: '#fff3c4' },
+    grid: [
+      '..RR....RR..',
+      '..rR....Rr..',
+      '..RRR..RRR..',
+      '...RRRRRR...',
+      '...DGGGGD...',
+      '..DGggggGD..',
+      '.DGgGGGGgGD.',
+      '.DGgGWWGgGD.',
+      '.DGgGWWGgGD.',
+      '.DGgGGGGgGD.',
+      '..DGggggGD..',
+      '...DGGGGD...',
+      '....DDDD....'
+    ]
+  },
   // ハート(プレイヤーHP表示・演出用)
   heart: {
     colors: { D: '#5d1020', R: '#b13e53', r: '#ff5566', W: '#ffd7dc' },

@@ -54,6 +54,16 @@ export async function renderHome(root) {
     )
   );
 
+  // ステータスの書の入口
+  const statusCard = el('button', { class: 'status-entry pixel-panel', onclick: () => { location.hash = '#status'; } },
+    el('span', { class: 'status-entry-icon', html: spriteSVG('medal', { size: 34 }) }),
+    el('div', { class: 'status-entry-info' },
+      el('div', { class: 'status-entry-title' }, 'ステータスの書'),
+      el('div', { class: 'status-entry-sub' }, '現在の自分 と 理想の自分')
+    ),
+    el('span', { class: 'dojo-entry-arrow' }, '▶')
+  );
+
   // 特訓部屋の入口
   const { level, rest, need } = levelFromXp(player.xp);
   let pendingCount = 0;
@@ -132,6 +142,7 @@ export async function renderHome(root) {
       el('h1', { class: 'home-logo' }, 'クエストダンジョン'),
       el('div', { class: 'home-sub' }, '- 目標達成RPG -'),
       shelf,
+      statusCard,
       dojoCard,
       listHead,
       list

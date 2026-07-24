@@ -1,6 +1,6 @@
 // IndexedDB ラッパー: マップ・記録・画像を永続化する
 const DB_NAME = 'quest-dungeon';
-const DB_VER = 2;
+const DB_VER = 3;
 
 let dbPromise = null;
 
@@ -22,6 +22,9 @@ function open() {
       }
       if (!db.objectStoreNames.contains('tasks')) {
         db.createObjectStore('tasks', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('skills')) {
+        db.createObjectStore('skills', { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -133,6 +136,20 @@ export function putTask(task) {
 
 export function deleteTask(id) {
   return tx('tasks', 'readwrite', (s) => { s.delete(id); });
+}
+
+// --- skills(ステータスの書: 資格・持ち味) ---
+export function getAllSkills() {
+  return tx('skills', 'readonly', (s) => reqValue(s.getAll()))
+    .then((ss) => ss.sort((a, b) => a.createdAt - b.createdAt));
+}
+
+export function putSkill(skill) {
+  return tx('skills', 'readwrite', (s) => { s.put(skill); });
+}
+
+export function deleteSkill(id) {
+  return tx('skills', 'readwrite', (s) => { s.delete(id); });
 }
 
 // --- images ---

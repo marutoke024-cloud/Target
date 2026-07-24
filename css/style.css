@@ -1080,6 +1080,204 @@ input, textarea {
 .equip-item.off { width: 60px; justify-content: center; color: var(--c-grey); font-size: 13px; padding: 14px 4px; }
 .equip-item.off.on { border-color: var(--c-gold); color: var(--c-gold); }
 
+/* ---------- ステータスの書 ---------- */
+.status-entry {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  margin-top: 18px;
+  background: linear-gradient(180deg, #2a2440, #221c35);
+  text-align: left;
+}
+.status-entry:active { transform: translateY(2px); }
+.status-entry-icon { flex-shrink: 0; filter: drop-shadow(0 0 6px rgba(255, 205, 117, .4)); }
+.status-entry-info { flex: 1; min-width: 0; }
+.status-entry-title { font-size: 15px; color: var(--c-gold); margin-bottom: 4px; }
+.status-entry-sub { font-size: 11px; color: var(--c-grey); }
+
+.status {
+  min-height: 100vh;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(14px + var(--safe-top)) 16px calc(40px + var(--safe-bottom));
+}
+.status-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  background: linear-gradient(180deg, #232645, var(--c-navy));
+}
+.status-avatar { filter: drop-shadow(0 0 8px rgba(115, 239, 247, .35)); }
+.status-card-info { flex: 1; min-width: 0; }
+.status-card-sub { font-size: 11px; color: var(--c-grey); margin-top: 6px; letter-spacing: 1px; }
+
+/* タブ(現在/理想) */
+.status-tabs { display: flex; gap: 6px; margin-bottom: 14px; }
+.status-tab {
+  flex: 1;
+  padding: 12px 6px;
+  font-size: 14px;
+  letter-spacing: 1px;
+  background: var(--c-night);
+  border: 3px solid var(--c-dark);
+  color: var(--c-slate);
+  box-shadow: 0 4px 0 var(--c-dark);
+}
+.status-tab:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--c-dark); }
+.status-tab.now.on {
+  background: linear-gradient(180deg, #2f6f46, #245a38);
+  border-color: var(--c-lime);
+  color: #eaffea;
+  box-shadow: 0 4px 0 #143d22, 0 0 10px rgba(167, 240, 112, .35);
+}
+.status-tab.ideal.on {
+  background: linear-gradient(180deg, #4a2a5d, #38204a);
+  border-color: #b06ad4;
+  color: #f0dcff;
+  box-shadow: 0 4px 0 #241030, 0 0 10px rgba(176, 106, 212, .45);
+}
+
+.status-progress { padding: 12px 14px; margin-bottom: 16px; }
+.status-progress-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.status-progress-title { flex: 1; font-size: 12px; color: var(--c-gold); letter-spacing: 1px; }
+.status-progress-num { font-size: 12px; color: var(--c-grey); }
+.status-bar { height: 14px; }
+
+/* パネル(理想タブは夜空の紫テーマ) */
+.status-panel {
+  border: 3px solid var(--c-slate);
+  background: var(--c-navy);
+  padding: 14px;
+  box-shadow: 0 6px 0 3px rgba(0, 0, 0, .45);
+}
+.status-panel.ideal {
+  border-color: var(--c-violet);
+  background:
+    radial-gradient(1.5px 1.5px at 15% 12%, #f4f4f4 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 78% 8%, #d9a0f0 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 52% 28%, #94b0c2 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 88% 46%, #f4f4f4 50%, transparent 51%),
+    radial-gradient(1.5px 1.5px at 24% 66%, #d9a0f0 50%, transparent 51%),
+    linear-gradient(180deg, #2b1a3a, #221530);
+}
+
+.status-section-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 12px;
+  border-bottom: 2px solid rgba(86, 108, 134, .4);
+  padding-bottom: 8px;
+}
+.status-panel.ideal .status-section-head { border-color: rgba(125, 63, 141, .5); }
+.status-section-icon { display: flex; }
+.status-section-title { flex: 1; font-size: 13px; color: var(--c-cyan); letter-spacing: 1px; }
+.status-panel.ideal .status-section-title { color: #d9a0f0; }
+.status-add {
+  width: 36px;
+  height: 36px;
+  font-size: 18px;
+  background: var(--c-gold);
+  color: #4a2d00;
+  border: 3px solid var(--c-dark);
+  box-shadow: 0 3px 0 var(--c-dark);
+}
+.status-add:active { transform: translateY(3px); box-shadow: none; }
+.status-empty {
+  font-size: 12px;
+  color: var(--c-slate);
+  line-height: 1.9;
+  padding: 14px 10px 20px;
+  text-align: center;
+}
+.status-panel.ideal .status-empty { color: #8a6aa0; }
+
+/* 勲章グリッド(資格・称号) */
+.medal-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.medal-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 6px;
+  background: rgba(26, 28, 44, .55);
+  border: 3px solid var(--c-slate);
+}
+.medal-item:active { transform: translateY(2px); }
+.medal-item .medal-face { position: relative; display: flex; filter: drop-shadow(0 0 6px rgba(255, 205, 117, .5)); }
+.medal-item .medal-name {
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--c-white);
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.medal-item.ghost { border-style: dashed; border-color: #5d4a77; }
+.medal-item.ghost .medal-face { filter: none; opacity: .85; }
+.medal-item.ghost .medal-name { color: #b39ac9; }
+.medal-q {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 12px;
+  font-size: 17px;
+  color: #d9a0f0;
+  text-shadow: 0 0 6px rgba(176, 106, 212, .9);
+}
+
+/* スキルリスト(持ち味) */
+.skill-list { display: flex; flex-direction: column; gap: 8px; }
+.skill-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  text-align: left;
+  background: rgba(26, 28, 44, .55);
+  border: 3px solid var(--c-slate);
+}
+.skill-row:active { transform: translateY(2px); }
+.skill-gem { flex-shrink: 0; display: flex; }
+.skill-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.skill-name { font-size: 14px; color: var(--c-white); word-break: break-word; }
+.skill-detail {
+  font-size: 11px;
+  color: var(--c-grey);
+  line-height: 1.5;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.skill-state {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--c-lime);
+  border: 2px solid var(--c-green);
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.skill-state.want { color: #b39ac9; border-color: #5d4a77; }
+.skill-row.ghost { border-style: dashed; border-color: #5d4a77; }
+.skill-row.ghost .skill-name { color: #cdb8de; }
+.recur-row .seg.ideal-seg.on { background: var(--c-violet); border-color: #b06ad4; }
+
 /* ---------- 特訓部屋の入口(ホーム) ---------- */
 .dojo-entry {
   width: 100%;
