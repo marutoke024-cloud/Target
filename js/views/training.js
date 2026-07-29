@@ -94,6 +94,8 @@ export function recurUnit(recur) {
   return '週';
 }
 export function recurText(recur) { return recurLabel(recur); }
+// ダンジョンリンク用: これまでに達成した周期の累計
+export function taskAchieved(task) { return task?.achievedTotal || 0; }
 
 function recurLabel(recur) {
   if (!recur) return '1回きり';
@@ -148,6 +150,7 @@ export async function evaluateHp(tasks) {
         const heal = Math.round(HP_HEAL / 2);
         const dmg = Math.round(HP_DMG / 2);
         if (achieved) {
+          task.achievedTotal = (task.achievedTotal || 0) + 1;
           if (hp < 100) { hp = clampHp(hp + heal); hpChanged = true; healEvents.push({ name: task.name, delta: heal }); }
         } else {
           hp = clampHp(hp - dmg); hpChanged = true; dmgOccurred = true;
@@ -168,6 +171,7 @@ export async function evaluateHp(tasks) {
         if (prev.key !== task.hpSettledKey) {
           const achieved = (prev.count || 0) >= r.target;
           if (achieved) {
+            task.achievedTotal = (task.achievedTotal || 0) + 1;
             if (hp < 100) { hp = clampHp(hp + HP_HEAL); hpChanged = true; healEvents.push({ name: task.name, delta: HP_HEAL }); }
             task.streak = (task.streak || 0) + 1;
           } else {
@@ -186,6 +190,7 @@ export async function evaluateHp(tasks) {
       if (task.streakKey == null) { task.streakKey = curKey; changed = true; }
       if (task.streakKey !== curKey) {
         const achieved = task.lastDoneKey === task.streakKey;
+        if (achieved) task.achievedTotal = (task.achievedTotal || 0) + 1;
         task.streak = achieved ? (task.streak || 0) + 1 : 0;
         task.streakKey = curKey;
         changed = true;

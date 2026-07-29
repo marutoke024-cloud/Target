@@ -1,5 +1,5 @@
 /* クエストダンジョン Service Worker: アプリシェルをキャッシュしてオフライン動作させる */
-const VERSION = 'qd-v10';
+const VERSION = 'qd-v11';
 const SHELL = [
   './',
   './index.html',

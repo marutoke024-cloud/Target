@@ -7,7 +7,7 @@ import {
 import { spriteSVG, gemSVG } from '../sprites.js';
 import { gearSVG, gearName, rollLoot } from '../gear.js';
 import { avatarSVG } from '../avatar.js';
-import { loadPlayer, recurUnit, recurText } from './training.js';
+import { loadPlayer, recurUnit, recurText, taskAchieved } from './training.js';
 import { openRecords } from './records.js';
 
 const GAP = 132;          // ステップ間の縦距離
@@ -49,35 +49,40 @@ export async function renderMap(root, mapId) {
 
   const rerender = () => renderMap(root, mapId);
 
-  // ---- 特訓部屋とリンクしたステップの自動クリア判定 ----
+  // ---- 特訓部屋とリンクしたステップの自動クリア判定(累積カウント) ----
   const tasks = await getAllTasks().catch(() => []);
   const taskById = new Map(tasks.map((t) => [t.id, t]));
   const autoCleared = [];
+  let linkDirty = false;
   for (const step of [...map.steps, ...secretSteps]) {
-    if (!step.link || step.clearedAt) continue;
+    if (!step.link) continue;
     const t = taskById.get(step.link.taskId);
     if (!t) continue;
-    if ((t.streak || 0) >= step.link.need) {
+    // 旧データ/新規リンクの基準値を確定(リンクした時点からの達成を数える)
+    if (step.link.base == null) { step.link.base = taskAchieved(t); linkDirty = true; }
+    if (step.clearedAt) continue;
+    if (taskAchieved(t) - step.link.base >= step.link.need) {
       step.clearedAt = Date.now();
       step.autoCleared = true;
       map.lastNodeId = step.id;
       autoCleared.push({ step, task: t });
     }
   }
-  if (autoCleared.length) await putMap(map);
+  if (autoCleared.length || linkDirty) await putMap(map);
 
-  // リンクの進捗テキスト(例: 2/4週 継続中)
+  // リンクの進捗(累積: リンク後に達成した周期の数)
   function linkProgress(step) {
     if (!step.link) return null;
     const t = taskById.get(step.link.taskId);
     if (!t) return { missing: true, text: '特訓が見つからない' };
     const unit = recurUnit(t.recur);
+    const done = Math.max(0, taskAchieved(t) - (step.link.base || 0));
     return {
       task: t,
       unit,
-      cur: Math.min(t.streak || 0, step.link.need),
+      cur: Math.min(done, step.link.need),
       need: step.link.need,
-      text: `${t.name} ${Math.min(t.streak || 0, step.link.need)}/${step.link.need}${unit}`
+      text: `${t.name} ${Math.min(done, step.link.need)}/${step.link.need}${unit}`
     };
   }
 
@@ -262,8 +267,8 @@ export async function renderMap(root, mapId) {
         iconHtml: `<div class="loot-reveal">${spriteSVG('stamp', { size: 90 })}</div>`,
         text: '特訓の成果で クリア!',
         sub: autoCleared.length > 1
-          ? `「${task.name}」の継続で ${autoCleared.length}つのステップを突破!`
-          : `「${task.name}」の継続で「${step.name}」を突破!`,
+          ? `「${task.name}」の積み重ねで ${autoCleared.length}つのステップを突破!`
+          : `「${task.name}」の積み重ねで「${step.name}」を突破!`,
         duration: 3000
       });
       updateProgress();
@@ -846,14 +851,14 @@ export async function renderMap(root, mapId) {
         const blocks = 10;
         const filled = Math.round((lp.cur / lp.need) * blocks);
         wrap.append(el('div', { class: 'link-box' },
-          el('div', { class: 'link-box-title' }, '⚔ 特訓とリンク中'),
+          el('div', { class: 'link-box-title' }, '⚔ 特訓とリンク中(累積)'),
           el('div', { class: 'link-task' }, lp.task.name, el('span', { class: 'link-task-recur' }, recurText(lp.task.recur))),
           el('div', { class: 'pixbar link-bar' },
             Array.from({ length: blocks }, (_, i) => el('span', { class: i < filled ? 'link-on' : '' }))
           ),
           el('div', { class: 'link-progress-text' },
-            `${lp.cur} / ${lp.need}${lp.unit} 継続 (${pct}%)`,
-            el('span', { class: 'link-hint' }, `達成でこのステップは自動クリア`)
+            `${lp.cur} / ${lp.need}${lp.unit} ぶん達成 (${pct}%)`,
+            el('span', { class: 'link-hint' }, '累積カウント。途切れてもリセットされない')
           ),
           el('button', {
             class: 'undo-link',
@@ -873,7 +878,7 @@ export async function renderMap(root, mapId) {
       wrap.append(el('button', {
         class: 'btn btn-ghost link-open',
         onclick: () => openLinkPicker(step, render)
-      }, '⚔ 特訓の継続とリンクする'));
+      }, '⚔ 特訓の達成とリンクする'));
     }
 
     render();
@@ -902,13 +907,13 @@ export async function renderMap(root, mapId) {
       const unit = recurUnit(picked?.recur);
       needRow.innerHTML = '';
       needRow.append(
-        el('span', {}, 'この特訓を'),
+        el('span', {}, 'この特訓を あと'),
         el('div', { class: 'habit-target' },
           el('button', { onclick: () => { if (need > 1) { need--; paint(); } } }, '−'),
           el('span', { class: 'habit-target-val' }, String(need)),
-          el('button', { onclick: () => { if (need < 52) { need++; paint(); } } }, '+')
+          el('button', { onclick: () => { if (need < 99) { need++; paint(); } } }, '+')
         ),
-        el('span', {}, `${unit} 続けたらクリア`)
+        el('span', {}, `${unit}ぶん 達成したらクリア`)
       );
     }
     paint();
@@ -918,19 +923,19 @@ export async function renderMap(root, mapId) {
         el('span', { html: spriteSVG('book', { size: 36 }) }),
         el('div', {},
           el('div', { class: 'sheet-kind' }, '特訓とリンク'),
-          el('div', { class: 'cave-sheet-hint' }, '継続が目標に届いた時点で自動クリア')
+          el('div', { class: 'cave-sheet-hint' }, '達成が目標数に届いた時点で自動クリア')
         )
       ),
       el('div', { class: 'field-label' }, 'どの特訓と連動する?'),
       taskList,
-      el('div', { class: 'field-label', style: 'margin-top:12px' }, 'どれだけ続けたら達成?'),
+      el('div', { class: 'field-label', style: 'margin-top:12px' }, 'どれだけ達成したらクリア?'),
       needRow,
-      el('div', { class: 'field-help' }, '「週に3回ジョギング」を4週つづける → 1か月継続でステップ自動クリア、のように使う。'),
+      el('div', { class: 'field-help' }, '「週に3回ジョギング」を4週ぶん達成 → ステップ自動クリア、のように使う。累積カウントなので途中で1週落としても、その次の週でカウントを積み増せる。'),
       el('button', {
         class: 'btn btn-primary btn-big',
         onclick: async () => {
           if (!picked) { toast('特訓をえらんでね'); return; }
-          step.link = { taskId: picked.id, need };
+          step.link = { taskId: picked.id, need, base: taskAchieved(picked) };
           await putMap(map);
           closeSheet();
           paintStepNode(step.id);
