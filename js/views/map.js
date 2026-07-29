@@ -1,5 +1,5 @@
 // ダンジョンマップ画面: スゴロク風マップ + ご褒美マス + 宝箱戦利品 + 習慣スタンプ
-import { getMap, getAllMaps, putMap, putImage, getImageURL, deleteImage, getRecords } from '../db.js';
+import { getMap, getAllMaps, putMap, putImage, getImageURL, deleteImage, getRecords, getAllTasks } from '../db.js';
 import {
   el, uid, fmtDate, haptic, toast, confirmDialog, promptDialog,
   resizeImage, debounce, openSheet, closeSheet, rainConfetti, showBanner
@@ -7,7 +7,7 @@ import {
 import { spriteSVG, gemSVG } from '../sprites.js';
 import { gearSVG, gearName, rollLoot } from '../gear.js';
 import { avatarSVG } from '../avatar.js';
-import { loadPlayer } from './training.js';
+import { loadPlayer, recurUnit, recurText } from './training.js';
 import { openRecords } from './records.js';
 
 const GAP = 132;          // ステップ間の縦距離
@@ -48,6 +48,38 @@ export async function renderMap(root, mapId) {
   const rewards = map.rewards || [];
 
   const rerender = () => renderMap(root, mapId);
+
+  // ---- 特訓部屋とリンクしたステップの自動クリア判定 ----
+  const tasks = await getAllTasks().catch(() => []);
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
+  const autoCleared = [];
+  for (const step of [...map.steps, ...secretSteps]) {
+    if (!step.link || step.clearedAt) continue;
+    const t = taskById.get(step.link.taskId);
+    if (!t) continue;
+    if ((t.streak || 0) >= step.link.need) {
+      step.clearedAt = Date.now();
+      step.autoCleared = true;
+      map.lastNodeId = step.id;
+      autoCleared.push({ step, task: t });
+    }
+  }
+  if (autoCleared.length) await putMap(map);
+
+  // リンクの進捗テキスト(例: 2/4週 継続中)
+  function linkProgress(step) {
+    if (!step.link) return null;
+    const t = taskById.get(step.link.taskId);
+    if (!t) return { missing: true, text: '特訓が見つからない' };
+    const unit = recurUnit(t.recur);
+    return {
+      task: t,
+      unit,
+      cur: Math.min(t.streak || 0, step.link.need),
+      need: step.link.need,
+      text: `${t.name} ${Math.min(t.streak || 0, step.link.need)}/${step.link.need}${unit}`
+    };
+  }
 
   // ---- レイアウト: スタート→(ステップ/ご褒美)→ゴール→裏ステップ→裏ゴール の並び ----
   const width = Math.min(window.innerWidth, 560);
@@ -218,6 +250,29 @@ export async function renderMap(root, mapId) {
     viewport.scrollTop = heroScrollTop();
   }
 
+  // 特訓の継続でステップが自動クリアされたことを演出する
+  if (autoCleared.length) {
+    const { step, task } = autoCleared[0];
+    const p = stepPts.get(step.id);
+    setTimeout(() => {
+      haptic([20, 60, 20, 60, 40]);
+      if (p) { scrollToPoint(p); burstParticles(p, ['#ffcd75', '#a7f070', '#73eff7', '#f4f4f4']); }
+      rainConfetti(['#ffcd75', '#a7f070', '#73eff7', '#f4f4f4'], 60);
+      showBanner({
+        iconHtml: `<div class="loot-reveal">${spriteSVG('stamp', { size: 90 })}</div>`,
+        text: '特訓の成果で クリア!',
+        sub: autoCleared.length > 1
+          ? `「${task.name}」の継続で ${autoCleared.length}つのステップを突破!`
+          : `「${task.name}」の継続で「${step.name}」を突破!`,
+        duration: 3000
+      });
+      updateProgress();
+      if (map.steps.every((s) => s.clearedAt) && !map.goal.openedAt) {
+        setTimeout(() => { paintGoalNodes(); scrollToPoint(goalPt); toast('すべてのステップをクリア! ゴールの宝箱がひらけるぞ!'); }, 3200);
+      }
+    }, 700);
+  }
+
   // ======================================================
   function heroScrollTop() {
     const p = heroPoint();
@@ -294,12 +349,19 @@ export async function renderMap(root, mapId) {
     else face.append(el('span', { class: 'node-check' }, '✓'));
     if (step.imageId) face.append(el('span', { class: 'node-photo' }, '📷'));
     if (step.habit) face.append(el('span', { class: 'node-stamp', html: spriteSVG('stamp', { size: 16 }) }));
+    if (step.link) face.append(el('span', { class: 'node-link' }, '⚔'));
     const children = [face, el('div', { class: 'node-label' }, step.name)];
     if (step.habit && !step.clearedAt) {
       const c = periodCount(step);
       const done = c >= step.habit.target;
       children.push(el('div', { class: `node-habit ${done ? 'done' : ''}` },
         `${step.habit.type === 'week' ? '今週' : '今月'} ${c}/${step.habit.target}${done ? ' ✓' : ''}`));
+    }
+    if (step.link && !step.clearedAt) {
+      const lp = linkProgress(step);
+      if (lp && !lp.missing) {
+        children.push(el('div', { class: 'node-habit link' }, `⚔ ${lp.cur}/${lp.need}${lp.unit}`));
+      }
     }
     node.append(...children);
   }
@@ -426,6 +488,7 @@ export async function renderMap(root, mapId) {
       ),
       nameInput,
       memoInput,
+      linkSection(step),
       habitSection(step, persist),
       photoAttach(step, persist)
     ];
@@ -757,6 +820,125 @@ export async function renderMap(root, mapId) {
         if (firstSecret) setTimeout(() => scrollToPoint(firstSecret), 900);
       }
     }, 6200);
+  }
+
+  // ---- 特訓部屋とのリンク ----
+  function linkSection(step) {
+    const wrap = el('div', { class: 'link-section' });
+    const routines = tasks.filter((t) => t.recur); // 定期ルーティンのみ
+
+    function render() {
+      wrap.innerHTML = '';
+
+      if (step.link) {
+        const lp = linkProgress(step);
+        if (lp && lp.missing) {
+          wrap.append(el('div', { class: 'link-box missing' },
+            el('div', { class: 'link-box-title' }, '⚔ リンク中の特訓が見つからない'),
+            el('button', {
+              class: 'undo-link',
+              onclick: async () => { step.link = null; await putMap(map); render(); paintStepNode(step.id); }
+            }, 'リンクを解除する')
+          ));
+          return;
+        }
+        const pct = Math.round((lp.cur / lp.need) * 100);
+        const blocks = 10;
+        const filled = Math.round((lp.cur / lp.need) * blocks);
+        wrap.append(el('div', { class: 'link-box' },
+          el('div', { class: 'link-box-title' }, '⚔ 特訓とリンク中'),
+          el('div', { class: 'link-task' }, lp.task.name, el('span', { class: 'link-task-recur' }, recurText(lp.task.recur))),
+          el('div', { class: 'pixbar link-bar' },
+            Array.from({ length: blocks }, (_, i) => el('span', { class: i < filled ? 'link-on' : '' }))
+          ),
+          el('div', { class: 'link-progress-text' },
+            `${lp.cur} / ${lp.need}${lp.unit} 継続 (${pct}%)`,
+            el('span', { class: 'link-hint' }, `達成でこのステップは自動クリア`)
+          ),
+          el('button', {
+            class: 'undo-link',
+            onclick: async () => { step.link = null; await putMap(map); render(); paintStepNode(step.id); }
+          }, 'リンクを解除する')
+        ));
+        return;
+      }
+
+      if (step.clearedAt) return; // クリア済みは設定不要
+
+      if (routines.length === 0) {
+        wrap.append(el('div', { class: 'link-empty' }, '⚔ 特訓部屋に定期ルーティンを作ると、このステップと連動できる'));
+        return;
+      }
+
+      wrap.append(el('button', {
+        class: 'btn btn-ghost link-open',
+        onclick: () => openLinkPicker(step, render)
+      }, '⚔ 特訓の継続とリンクする'));
+    }
+
+    render();
+    return wrap;
+  }
+
+  function openLinkPicker(step, onDone) {
+    const routines = tasks.filter((t) => t.recur);
+    let picked = routines[0];
+    let need = 4;
+
+    const taskList = el('div', { class: 'link-picker-list' });
+    const needRow = el('div', { class: 'link-need-row' });
+
+    function paint() {
+      taskList.innerHTML = '';
+      for (const t of routines) {
+        taskList.append(el('button', {
+          class: `link-pick ${picked && picked.id === t.id ? 'on' : ''}`,
+          onclick: () => { picked = t; paint(); }
+        },
+          el('span', { class: 'link-pick-name' }, t.name),
+          el('span', { class: 'link-pick-recur' }, recurText(t.recur))
+        ));
+      }
+      const unit = recurUnit(picked?.recur);
+      needRow.innerHTML = '';
+      needRow.append(
+        el('span', {}, 'この特訓を'),
+        el('div', { class: 'habit-target' },
+          el('button', { onclick: () => { if (need > 1) { need--; paint(); } } }, '−'),
+          el('span', { class: 'habit-target-val' }, String(need)),
+          el('button', { onclick: () => { if (need < 52) { need++; paint(); } } }, '+')
+        ),
+        el('span', {}, `${unit} 続けたらクリア`)
+      );
+    }
+    paint();
+
+    openSheet([
+      el('div', { class: 'sheet-head' },
+        el('span', { html: spriteSVG('book', { size: 36 }) }),
+        el('div', {},
+          el('div', { class: 'sheet-kind' }, '特訓とリンク'),
+          el('div', { class: 'cave-sheet-hint' }, '継続が目標に届いた時点で自動クリア')
+        )
+      ),
+      el('div', { class: 'field-label' }, 'どの特訓と連動する?'),
+      taskList,
+      el('div', { class: 'field-label', style: 'margin-top:12px' }, 'どれだけ続けたら達成?'),
+      needRow,
+      el('div', { class: 'field-help' }, '「週に3回ジョギング」を4週つづける → 1か月継続でステップ自動クリア、のように使う。'),
+      el('button', {
+        class: 'btn btn-primary btn-big',
+        onclick: async () => {
+          if (!picked) { toast('特訓をえらんでね'); return; }
+          step.link = { taskId: picked.id, need };
+          await putMap(map);
+          closeSheet();
+          paintStepNode(step.id);
+          toast(`「${picked.name}」とリンクした!`);
+          openStepSheet(step, nodeEls.get(step.id).kind, nodeEls.get(step.id).index);
+        }
+      }, 'リンクする')
+    ]);
   }
 
   // ---- 習慣スタンプシート ----

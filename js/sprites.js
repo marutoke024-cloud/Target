@@ -222,6 +222,20 @@ const GRIDS = {
       '....DDD....'
     ]
   },
+  // 金貨(宝物の洞窟の金額表示)
+  coin: {
+    colors: { D: '#8a5a00', G: '#ffcd75', g: '#e8a33d', W: '#fff3c4' },
+    grid: [
+      '..DDDD..',
+      '.DGGGGD.',
+      'DGWGGgGD',
+      'DGWGGgGD',
+      'DGWGGgGD',
+      'DGgggggD',
+      '.DggggD.',
+      '..DDDD..'
+    ]
+  },
   // 勲章メダル(資格・称号) リボン+金メダル
   medal: {
     colors: { R: '#b13e53', r: '#d95763', D: '#8a5a00', G: '#ffcd75', g: '#e8a33d', W: '#fff3c4' },

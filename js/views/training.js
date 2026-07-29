@@ -57,7 +57,7 @@ function startOfWeek(d) {
 }
 function weekKey(now = new Date()) { return 'W' + dkey(startOfWeek(now)); }
 function monthKey(now = new Date()) { return `N${now.getFullYear()}-${now.getMonth() + 1}`; }
-// HP精算の周期キー(毎日/週にn回は週=月曜、月にn回は月)
+// HP精算の周期キー(週にn回は週=月曜、月にn回は月)。毎日は0時ごとに個別判定する
 function hpPeriodKey(recur, now = new Date()) {
   return recur.type === 'monthN' ? monthKey(now) : weekKey(now);
 }
@@ -86,6 +86,15 @@ function currentCount(task) {
   return task.progress.count;
 }
 
+// ダンジョンとのリンク用: 継続単位のラベル(毎日→日 / 週→週 / 月→か月)
+export function recurUnit(recur) {
+  if (!recur) return '回';
+  if (recur.type === 'daily') return '日';
+  if (recur.type === 'monthN' || recur.type === 'monthly') return 'か月';
+  return '週';
+}
+export function recurText(recur) { return recurLabel(recur); }
+
 function recurLabel(recur) {
   if (!recur) return '1回きり';
   if (recur.type === 'daily') return '毎日';
@@ -110,12 +119,13 @@ export function isPending(task) {
   return task.lastDoneKey !== periodKey(r);
 }
 
-// 週明けの月曜(月にn回は月初)に周期を精算する。
-// - 毎日 : その週を7日クリアで達成(回復/ダメージは半減: +5 / -10)
-// - 週/月にn回 : 目標回数で達成(+10 / -20)
+// 周期の終わりに精算する。
+// - 毎日 : 日付が変わる0時に前日ぶんを判定(回復/ダメージは半減: +5 / -10)
+// - 週にn回 : 週明けの月曜、月にn回: 月初に判定(+10 / -20)
 // 達成でHP回復、未達成でダメージ。あわせて各タスクの継続ストリークを更新する。
 export async function evaluateHp(tasks) {
   const p = loadPlayer();
+  const now = new Date();
   let hp = p.hp;
   let hpChanged = false, dmgOccurred = false;
   const dmgEvents = [], healEvents = [];
@@ -125,31 +135,49 @@ export async function evaluateHp(tasks) {
     if (!r) continue; // 1回きりは対象外
     let changed = false;
 
-    if (isHpRecur(r)) {
-      const isDaily = r.type === 'daily';
-      const store = isDaily ? 'hpWeek' : 'progress';
+    if (r.type === 'daily') {
+      // 0時に日付が変わったら前日ぶんを判定する
+      const yesterday = 'd' + dkey(new Date(now.getTime() - DAY_MS));
+      if (task.hpSettledKey == null) {
+        // 作成日より前はさかのぼって罰しない
+        task.hpSettledKey = 'd' + dkey(new Date(now.getTime() - DAY_MS));
+        changed = true;
+      }
+      if (task.hpSettledKey < yesterday) {
+        const achieved = task.lastDoneKey === yesterday;
+        const heal = Math.round(HP_HEAL / 2);
+        const dmg = Math.round(HP_DMG / 2);
+        if (achieved) {
+          if (hp < 100) { hp = clampHp(hp + heal); hpChanged = true; healEvents.push({ name: task.name, delta: heal }); }
+        } else {
+          hp = clampHp(hp - dmg); hpChanged = true; dmgOccurred = true;
+          dmgEvents.push({ name: task.name, delta: dmg });
+          task.streak = 0;
+        }
+        task.hpSettledKey = yesterday;
+        changed = true;
+      }
+    } else if (isHpRecur(r)) {
       const curKey = hpPeriodKey(r);
-      if (!task[store]) { task[store] = isDaily ? { key: curKey, days: [] } : { key: curKey, count: 0 }; changed = true; }
-      if (task.hpSettledKey == null) { task.hpSettledKey = task[store].key; changed = true; }
+      if (!task.progress) { task.progress = { key: curKey, count: 0 }; changed = true; }
+      if (task.hpSettledKey == null) { task.hpSettledKey = task.progress.key; changed = true; }
 
-      if (task[store].key !== curKey) {
-        const prev = task[store];
+      if (task.progress.key !== curKey) {
+        const prev = task.progress;
         // 作成直後の中途半端な周期はさかのぼって精算しない
         if (prev.key !== task.hpSettledKey) {
-          const achieved = isDaily ? (prev.days ? prev.days.length : 0) >= 7 : (prev.count || 0) >= r.target;
-          const heal = isDaily ? Math.round(HP_HEAL / 2) : HP_HEAL;
-          const dmg = isDaily ? Math.round(HP_DMG / 2) : HP_DMG;
+          const achieved = (prev.count || 0) >= r.target;
           if (achieved) {
-            if (hp < 100) { hp = clampHp(hp + heal); hpChanged = true; healEvents.push({ name: task.name, delta: heal }); }
+            if (hp < 100) { hp = clampHp(hp + HP_HEAL); hpChanged = true; healEvents.push({ name: task.name, delta: HP_HEAL }); }
             task.streak = (task.streak || 0) + 1;
           } else {
-            hp = clampHp(hp - dmg); hpChanged = true; dmgOccurred = true;
-            dmgEvents.push({ name: task.name, delta: dmg });
+            hp = clampHp(hp - HP_DMG); hpChanged = true; dmgOccurred = true;
+            dmgEvents.push({ name: task.name, delta: HP_DMG });
             task.streak = 0;
           }
         }
         task.hpSettledKey = prev.key;
-        task[store] = isDaily ? { key: curKey, days: [] } : { key: curKey, count: 0 };
+        task.progress = { key: curKey, count: 0 };
         changed = true;
       }
     } else {
@@ -372,9 +400,6 @@ export async function renderTraining(root) {
             const key = periodKey(task.recur);
             task.progress = { key, count: Math.max(0, task.recur.target - 1) };
           } else if (task.recur && task.recur.type === 'daily') {
-            // 今日の達成を取り消す(週内の達成日とストリークを戻す)
-            const today = dkey(new Date());
-            if (task.hpWeek) task.hpWeek.days = (task.hpWeek.days || []).filter((d) => d !== today);
             task.streak = Math.max(0, (task.streak || 0) - 1);
             task.lastDoneKey = null;
           } else if (task.recur) {
@@ -400,12 +425,8 @@ export async function renderTraining(root) {
     if (task.recur) task.lastDoneKey = periodKey(task.recur);
     task.doneCount = (task.doneCount || 0) + 1;
 
-    // 毎日: HP用に週内の達成日を記録 + 連続日数ストリーク
+    // 毎日: 連続日数ストリーク(前日クリアからの継続なら+1)
     if (task.recur && task.recur.type === 'daily') {
-      const wk = weekKey(now);
-      if (!task.hpWeek || task.hpWeek.key !== wk) task.hpWeek = { key: wk, days: [] };
-      const today = dkey(now);
-      if (!task.hpWeek.days.includes(today)) task.hpWeek.days.push(today);
       const yKey = 'd' + dkey(new Date(now.getTime() - DAY_MS));
       task.streak = (prevDone === yKey) ? (task.streak || 0) + 1 : 1;
     }
@@ -523,7 +544,7 @@ export async function renderTraining(root) {
         isCountRecur(recur)
           ? `${recurLabel(recur)}が目標。1回ごとに⚔を押して敵のHPを削り、${recur.target}回で討伐。毎週明けの月曜に判定し、達成でHP+${HP_HEAL}%・未達成で-${HP_DMG}%。`
           : recur?.type === 'daily'
-          ? `毎日リストに出現。月曜の判定で、その週を7日クリアでHP+${Math.round(HP_HEAL / 2)}%、崩すと-${Math.round(HP_DMG / 2)}%(毎日は半減)。`
+          ? `毎日リストに出現。日付が変わる0時に前日ぶんを判定し、クリアでHP+${Math.round(HP_HEAL / 2)}%・逃すと-${Math.round(HP_DMG / 2)}%(毎日は半減)。`
           : recur ? `${recurLabel(recur)} にリストへ出現する。`
           : 'クリアすると完了済みへ移動する。'));
     }

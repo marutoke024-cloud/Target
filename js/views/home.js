@@ -64,6 +64,16 @@ export async function renderHome(root) {
     el('span', { class: 'dojo-entry-arrow' }, '▶')
   );
 
+  // 宝物の洞窟の入口
+  const caveCard = el('button', { class: 'cave-entry pixel-panel', onclick: () => { location.hash = '#cave'; } },
+    el('span', { class: 'cave-entry-icon', html: spriteSVG('chestClosed', { size: 34 }) }),
+    el('div', { class: 'status-entry-info' },
+      el('div', { class: 'cave-entry-title' }, '宝物の洞窟'),
+      el('div', { class: 'status-entry-sub' }, 'ほしいもの・まだ見ぬお宝')
+    ),
+    el('span', { class: 'dojo-entry-arrow' }, '▶')
+  );
+
   // 特訓部屋の入口
   const { level, rest, need } = levelFromXp(player.xp);
   let pendingCount = 0;
@@ -143,6 +153,7 @@ export async function renderHome(root) {
       el('div', { class: 'home-sub' }, '- 目標達成RPG -'),
       shelf,
       statusCard,
+      caveCard,
       dojoCard,
       listHead,
       list

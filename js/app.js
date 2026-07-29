@@ -5,6 +5,7 @@ import { renderMap } from './views/map.js';
 import { renderTraining } from './views/training.js';
 import { renderEquip } from './views/equip.js';
 import { renderStatus } from './views/status.js';
+import { renderCave } from './views/cave.js';
 
 const app = document.getElementById('app');
 
@@ -23,6 +24,8 @@ async function route() {
     await renderEquip(app);
   } else if (hash === '#status') {
     await renderStatus(app);
+  } else if (hash === '#cave') {
+    await renderCave(app);
   } else {
     await renderHome(app);
   }

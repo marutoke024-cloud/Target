@@ -1,6 +1,6 @@
 // IndexedDB ラッパー: マップ・記録・画像を永続化する
 const DB_NAME = 'quest-dungeon';
-const DB_VER = 3;
+const DB_VER = 4;
 
 let dbPromise = null;
 
@@ -25,6 +25,9 @@ function open() {
       }
       if (!db.objectStoreNames.contains('skills')) {
         db.createObjectStore('skills', { keyPath: 'id' });
+      }
+      if (!db.objectStoreNames.contains('wishes')) {
+        db.createObjectStore('wishes', { keyPath: 'id' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -57,7 +60,9 @@ function normalizeStep(s) {
     imageId: s.imageId ?? null,
     clearedAt: s.clearedAt ?? null,
     habit: s.habit ?? null,                       // { type:'week'|'month', target:number }
-    stamps: Array.isArray(s.stamps) ? s.stamps : [] // ['YYYY-MM-DD', ...]
+    stamps: Array.isArray(s.stamps) ? s.stamps : [], // ['YYYY-MM-DD', ...]
+    link: s.link ?? null,                         // { taskId, need } 特訓の継続と連動
+    autoCleared: s.autoCleared ?? false
   };
 }
 
@@ -150,6 +155,20 @@ export function putSkill(skill) {
 
 export function deleteSkill(id) {
   return tx('skills', 'readwrite', (s) => { s.delete(id); });
+}
+
+// --- wishes(宝物の洞窟: ほしいものリスト) ---
+export function getAllWishes() {
+  return tx('wishes', 'readonly', (s) => reqValue(s.getAll()))
+    .then((ws) => ws.sort((a, b) => a.createdAt - b.createdAt));
+}
+
+export function putWish(wish) {
+  return tx('wishes', 'readwrite', (s) => { s.put(wish); });
+}
+
+export function deleteWish(id) {
+  return tx('wishes', 'readwrite', (s) => { s.delete(id); });
 }
 
 // --- images ---

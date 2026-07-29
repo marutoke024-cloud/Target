@@ -1278,6 +1278,178 @@ input, textarea {
 .skill-row.ghost .skill-name { color: #cdb8de; }
 .recur-row .seg.ideal-seg.on { background: var(--c-violet); border-color: #b06ad4; }
 
+/* ---------- 宝物の洞窟 ---------- */
+.cave-entry {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  margin-top: 14px;
+  background: linear-gradient(180deg, #2b2438, #241d2e);
+  text-align: left;
+}
+.cave-entry:active { transform: translateY(2px); }
+.cave-entry-icon { flex-shrink: 0; filter: drop-shadow(0 0 6px rgba(255, 205, 117, .45)); }
+.cave-entry-title { font-size: 15px; color: var(--c-gold); margin-bottom: 4px; }
+
+.cave {
+  min-height: 100vh;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: calc(14px + var(--safe-top)) 16px calc(40px + var(--safe-bottom));
+  background:
+    radial-gradient(2px 2px at 12% 18%, rgba(255, 205, 117, .5) 50%, transparent 51%),
+    radial-gradient(2px 2px at 82% 26%, rgba(115, 239, 247, .45) 50%, transparent 51%),
+    radial-gradient(2px 2px at 44% 62%, rgba(217, 160, 240, .4) 50%, transparent 51%),
+    radial-gradient(2px 2px at 68% 84%, rgba(255, 205, 117, .35) 50%, transparent 51%),
+    repeating-linear-gradient(115deg, rgba(0, 0, 0, .18) 0 6px, transparent 6px 26px),
+    linear-gradient(180deg, #241d2e 0%, #1d1726 55%, #15111c 100%);
+}
+.cave-title { color: var(--c-gold); }
+.cave-summary { padding: 14px; margin-bottom: 18px; background: linear-gradient(180deg, #33294a, #262038); }
+.cave-summary-row { display: flex; align-items: center; gap: 12px; }
+.cave-summary-icon { flex-shrink: 0; filter: drop-shadow(0 0 6px rgba(255, 205, 117, .6)); }
+.cave-summary-main { flex: 1; min-width: 0; }
+.cave-summary-label { font-size: 11px; color: var(--c-grey); margin-bottom: 4px; }
+.cave-summary-total { font-size: 22px; color: var(--c-gold); letter-spacing: 1px; }
+.cave-summary-got { font-size: 11px; color: var(--c-lime); margin-top: 10px; border-top: 2px solid rgba(86, 108, 134, .35); padding-top: 8px; }
+
+.cave-list { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+.cave-item {
+  display: flex;
+  align-items: stretch;
+  background: linear-gradient(180deg, #2f2743, #262036);
+  overflow: hidden;
+}
+.cave-item-body { flex: 1; display: flex; gap: 12px; padding: 12px; text-align: left; min-width: 0; align-items: flex-start; }
+.cave-gem { flex-shrink: 0; filter: drop-shadow(0 0 7px rgba(255, 255, 255, .25)); }
+.cave-item-info { flex: 1; min-width: 0; }
+.cave-item-top { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; }
+.cave-item-name { flex: 1; font-size: 15px; line-height: 1.4; word-break: break-word; }
+.cave-deadline {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--c-cyan);
+  border: 2px solid var(--c-teal);
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.cave-deadline.soon { color: var(--c-gold); border-color: var(--c-amber); }
+.cave-deadline.over { color: #ff8fa0; border-color: var(--c-red); }
+.cave-item-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 11px; color: var(--c-grey); }
+.cave-price { display: inline-flex; align-items: center; gap: 4px; color: var(--c-gold); font-size: 13px; }
+.cave-price-icon { display: flex; }
+.cave-rank { color: var(--c-slate); }
+.cave-date { color: var(--c-slate); }
+.cave-memo {
+  font-size: 11px;
+  color: var(--c-grey);
+  margin-top: 6px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.cave-get {
+  width: 60px;
+  flex-shrink: 0;
+  font-size: 22px;
+  background: var(--c-gold);
+  color: #4a2d00;
+  border-left: 3px solid var(--c-dark);
+}
+.cave-get:active { filter: brightness(1.15); }
+.cave-empty {
+  text-align: center;
+  color: #8a7aa0;
+  font-size: 13px;
+  line-height: 2;
+  padding: 26px 16px;
+  border: 3px dashed #4a3f5d;
+}
+.cave-got summary { color: var(--c-grey); }
+.cave-sheet-gem { display: flex; }
+.cave-sheet-hint { font-size: 10px; color: var(--c-grey); margin-top: 3px; }
+.cave-reveal {
+  padding: 14px;
+  background: radial-gradient(circle, rgba(255, 205, 117, .4) 0%, transparent 70%);
+  animation: loot-reveal-pop .7s cubic-bezier(.2, 1.6, .4, 1);
+}
+.cave input[type="date"], .sheet input[type="date"], .sheet input[type="number"] {
+  width: 100%;
+  background: var(--c-night);
+  border: 3px solid var(--c-dark);
+  color: var(--c-white);
+  padding: 12px;
+  outline: none;
+  font-family: inherit;
+  font-size: 16px;
+}
+.sheet input[type="date"]:focus, .sheet input[type="number"]:focus { border-color: var(--c-sky); }
+
+/* ---------- 特訓とダンジョンのリンク ---------- */
+.link-section { margin-bottom: 12px; }
+.link-open { width: 100%; font-size: 13px; }
+.link-empty {
+  font-size: 11px;
+  color: var(--c-slate);
+  line-height: 1.7;
+  border: 2px dashed var(--c-dark);
+  padding: 10px;
+}
+.link-box {
+  background: linear-gradient(180deg, #2a3a2c, #22301f);
+  border: 3px solid var(--c-green);
+  padding: 12px;
+}
+.link-box.missing { background: var(--c-night); border-color: var(--c-red); }
+.link-box-title { font-size: 11px; color: var(--c-lime); letter-spacing: 1px; margin-bottom: 8px; }
+.link-box.missing .link-box-title { color: #ff8fa0; }
+.link-task { font-size: 14px; color: var(--c-white); margin-bottom: 8px; word-break: break-word; }
+.link-task-recur {
+  font-size: 10px;
+  color: var(--c-cyan);
+  border: 2px solid var(--c-teal);
+  padding: 1px 5px;
+  margin-left: 8px;
+  white-space: nowrap;
+}
+.link-bar { height: 14px; }
+.link-bar span.link-on { background: var(--c-lime); box-shadow: inset 0 -3px 0 var(--c-green); }
+.link-progress-text { font-size: 12px; color: var(--c-lime); margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+.link-hint { font-size: 10px; color: var(--c-grey); }
+.link-picker-list { display: flex; flex-direction: column; gap: 8px; }
+.link-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  text-align: left;
+  background: var(--c-night);
+  border: 3px solid var(--c-dark);
+}
+.link-pick.on { border-color: var(--c-lime); box-shadow: 0 0 8px rgba(167, 240, 112, .4); }
+.link-pick-name { flex: 1; font-size: 14px; word-break: break-word; }
+.link-pick-recur { flex-shrink: 0; font-size: 10px; color: var(--c-cyan); border: 2px solid var(--c-teal); padding: 2px 5px; }
+.link-need-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 14px; color: var(--c-grey); margin-bottom: 8px; }
+.node-link {
+  position: absolute;
+  left: -8px;
+  bottom: -4px;
+  width: 18px;
+  height: 18px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--c-green);
+  color: #08240f;
+  border: 2px solid var(--c-dark);
+}
+.node-habit.link { border-color: var(--c-green); color: var(--c-lime); }
+
 /* ---------- 特訓部屋の入口(ホーム) ---------- */
 .dojo-entry {
   width: 100%;
