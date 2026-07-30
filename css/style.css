@@ -1450,6 +1450,55 @@ input, textarea {
 }
 .node-habit.link { border-color: var(--c-green); color: var(--c-lime); }
 
+/* スタンプシートと特訓の連動 */
+.stamp-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: var(--c-night);
+  border: 2px solid var(--c-teal);
+}
+.stamp-link.on { border-color: var(--c-green); background: linear-gradient(180deg, #21301f, #1b2719); }
+.stamp-link.missing { border-color: var(--c-red); }
+.stamp-link.empty {
+  display: block;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--c-slate);
+  border: 2px dashed var(--c-dark);
+}
+.stamp-link-icon { flex-shrink: 0; font-size: 15px; color: var(--c-lime); }
+.stamp-link-main { flex: 1; min-width: 0; }
+.stamp-link-name { font-size: 13px; color: var(--c-white); word-break: break-word; }
+.stamp-link-sub { font-size: 10px; color: var(--c-grey); margin-top: 3px; }
+.stamp-link-off { flex-shrink: 0; font-size: 11px; color: var(--c-slate); text-decoration: underline; }
+.stamp-link-add {
+  width: 100%;
+  padding: 11px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  background: var(--c-dark);
+  border: 3px solid var(--c-slate);
+  color: var(--c-cyan);
+}
+.stamp-link-add:active { transform: translateY(2px); }
+.link-pick-past { display: block; font-size: 10px; color: var(--c-slate); margin-top: 3px; }
+
+/* 自動でついたスタンプ */
+.stamp-cell.auto { background: #1f3327; border-color: var(--c-green); }
+.stamp-auto-mark {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  font-size: 8px;
+  line-height: 1;
+  padding: 1px 2px;
+  color: #08240f;
+  background: var(--c-lime);
+}
+
 /* ---------- 特訓部屋の入口(ホーム) ---------- */
 .dojo-entry {
   width: 100%;

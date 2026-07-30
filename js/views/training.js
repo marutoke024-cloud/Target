@@ -97,6 +97,19 @@ export function recurText(recur) { return recurLabel(recur); }
 // ダンジョンリンク用: これまでに達成した周期の累計
 export function taskAchieved(task) { return task?.achievedTotal || 0; }
 
+// ダンジョンのスタンプシート連携用: 実施した日付(YYYY-MM-DD)を記録する
+const DONE_DATES_MAX = 800; // 約2年ぶん
+function markDoneDate(task, now = new Date()) {
+  const key = dkey(now);
+  if (!Array.isArray(task.doneDates)) task.doneDates = [];
+  if (!task.doneDates.includes(key)) task.doneDates.push(key);
+  if (task.doneDates.length > DONE_DATES_MAX) task.doneDates = task.doneDates.slice(-DONE_DATES_MAX);
+}
+function unmarkDoneDate(task, now = new Date()) {
+  const key = dkey(now);
+  if (Array.isArray(task.doneDates)) task.doneDates = task.doneDates.filter((d) => d !== key);
+}
+
 function recurLabel(recur) {
   if (!recur) return '1回きり';
   if (recur.type === 'daily') return '毎日';
@@ -412,6 +425,7 @@ export async function renderTraining(root) {
           } else {
             task.doneAt = null;
           }
+          unmarkDoneDate(task);
           addXp(-XP_PER_TASK);
           await putTask(task);
           paintHero(false);
@@ -435,6 +449,7 @@ export async function renderTraining(root) {
       const yKey = 'd' + dkey(new Date(now.getTime() - DAY_MS));
       task.streak = (prevDone === yKey) ? (task.streak || 0) + 1 : 1;
     }
+    markDoneDate(task, now);
     await putTask(task);
 
     haptic([16, 40, 24]);
@@ -461,6 +476,7 @@ export async function renderTraining(root) {
       task.doneCount = (task.doneCount || 0) + 1;
     }
     const { before, after } = addXp(XP_PER_TASK);
+    markDoneDate(task);
     await putTask(task);
 
     haptic(defeated ? [20, 50, 20, 50, 40] : [14, 30]);

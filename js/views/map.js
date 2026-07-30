@@ -68,6 +68,18 @@ export async function renderMap(root, mapId) {
       autoCleared.push({ step, task: t });
     }
   }
+  // ---- スタンプシートとリンクした特訓の実施日を取り込む ----
+  for (const step of [...map.steps, ...secretSteps]) {
+    const tid = step.habit?.linkTaskId;
+    if (!tid) continue;
+    const t = taskById.get(tid);
+    if (!t) continue;
+    for (const d of (t.doneDates || [])) {
+      if (!step.stamps.includes(d)) { step.stamps.push(d); linkDirty = true; }
+      if (!step.autoStamps.includes(d)) { step.autoStamps.push(d); linkDirty = true; }
+    }
+  }
+
   if (autoCleared.length || linkDirty) await putMap(map);
 
   // リンクの進捗(累積: リンク後に達成した周期の数)
@@ -946,17 +958,121 @@ export async function renderMap(root, mapId) {
     ]);
   }
 
+  // スタンプシートに連動させる特訓を選ぶ
+  function openStampLinkPicker(step, rerenderHabit, persist) {
+    const routines = tasks.filter((t) => t.recur);
+    let picked = routines[0];
+
+    const list = el('div', { class: 'link-picker-list' });
+    function paint() {
+      list.innerHTML = '';
+      for (const t of routines) {
+        const past = (t.doneDates || []).length;
+        list.append(el('button', {
+          class: `link-pick ${picked && picked.id === t.id ? 'on' : ''}`,
+          onclick: () => { picked = t; paint(); }
+        },
+          el('span', { class: 'link-pick-name' }, t.name,
+            past ? el('span', { class: 'link-pick-past' }, `これまで${past}日ぶん` ) : null),
+          el('span', { class: 'link-pick-recur' }, recurText(t.recur))
+        ));
+      }
+    }
+    paint();
+
+    openSheet([
+      el('div', { class: 'sheet-head' },
+        el('span', { html: spriteSVG('stamp', { size: 36 }) }),
+        el('div', {},
+          el('div', { class: 'sheet-kind' }, 'スタンプを自動化'),
+          el('div', { class: 'cave-sheet-hint' }, '特訓を実施した日に自動でスタンプが押される')
+        )
+      ),
+      el('div', { class: 'field-label' }, 'どの特訓と連動する?'),
+      list,
+      el('div', { class: 'field-help' }, '連動すると、その特訓の過去の実施日ぶんもまとめてスタンプされる。自動でついたスタンプは手動では消せない。'),
+      el('button', {
+        class: 'btn btn-primary btn-big',
+        onclick: async () => {
+          if (!picked) { toast('特訓をえらんでね'); return; }
+          step.habit.linkTaskId = picked.id;
+          // 過去の実施日もまとめて取り込む
+          for (const d of (picked.doneDates || [])) {
+            if (!step.stamps.includes(d)) step.stamps.push(d);
+            if (!step.autoStamps.includes(d)) step.autoStamps.push(d);
+          }
+          await persist();
+          closeSheet();
+          toast(`「${picked.name}」と連動! 実施日に自動でスタンプ`);
+          openStepSheet(step, nodeEls.get(step.id).kind, nodeEls.get(step.id).index);
+        }
+      }, '連動する')
+    ]);
+  }
+
   // ---- 習慣スタンプシート ----
   function habitSection(step, persist) {
     const wrap = el('div', { class: 'habit-section' });
     const cal = { y: new Date().getFullYear(), m: new Date().getMonth() };
 
     async function toggleStamp(k) {
+      // 特訓から自動で入ったスタンプは手動で消せない
+      if (step.autoStamps.includes(k)) {
+        const t = taskById.get(step.habit?.linkTaskId);
+        toast(`${t ? `「${t.name}」` : '特訓'}の実施で自動でついたスタンプ`);
+        return;
+      }
       const i = step.stamps.indexOf(k);
       if (i >= 0) step.stamps.splice(i, 1); else step.stamps.push(k);
       haptic(8);
       await persist();
       render();
+    }
+
+    // スタンプシートと特訓のリンク行
+    function stampLinkRow() {
+      const routines = tasks.filter((t) => t.recur);
+      const linked = taskById.get(step.habit?.linkTaskId);
+
+      if (linked) {
+        const autoCount = step.autoStamps.length;
+        return el('div', { class: 'stamp-link on' },
+          el('span', { class: 'stamp-link-icon' }, '⚔'),
+          el('div', { class: 'stamp-link-main' },
+            el('div', { class: 'stamp-link-name' }, `${linked.name} と連動中`),
+            el('div', { class: 'stamp-link-sub' }, `実施した日に自動でスタンプ(これまで${autoCount}コ)`)
+          ),
+          el('button', {
+            class: 'stamp-link-off',
+            onclick: async () => {
+              step.habit.linkTaskId = null;
+              await persist();
+              render();
+              toast('自動スタンプを解除した(押したスタンプは残る)');
+            }
+          }, '解除')
+        );
+      }
+
+      if (step.habit?.linkTaskId && !linked) {
+        return el('div', { class: 'stamp-link missing' },
+          el('span', { class: 'stamp-link-icon' }, '⚔'),
+          el('div', { class: 'stamp-link-main' }, el('div', { class: 'stamp-link-name' }, '連動中の特訓が見つからない')),
+          el('button', {
+            class: 'stamp-link-off',
+            onclick: async () => { step.habit.linkTaskId = null; await persist(); render(); }
+          }, '解除')
+        );
+      }
+
+      if (routines.length === 0) {
+        return el('div', { class: 'stamp-link empty' }, '⚔ 特訓部屋に定期ルーティンを作ると、実施日を自動でスタンプできる');
+      }
+
+      return el('button', {
+        class: 'stamp-link-add',
+        onclick: () => openStampLinkPicker(step, render, persist)
+      }, '⚔ 特訓とリンクして自動でスタンプする');
     }
 
     function render() {
@@ -994,7 +1110,7 @@ export async function renderMap(root, mapId) {
         el('span', { class: 'habit-total' }, `累計 ${step.stamps.length}コ`)
       );
 
-      wrap.append(typeRow, summary, buildCalendar());
+      wrap.append(typeRow, summary, stampLinkRow(), buildCalendar());
     }
 
     function buildCalendar() {
@@ -1022,15 +1138,17 @@ export async function renderMap(root, mapId) {
           if (dnum < 1 || dnum > days) { grid.append(el('div', { class: 'stamp-cell empty' })); continue; }
           const k = dateKey(new Date(cal.y, cal.m, dnum));
           const on = step.stamps.includes(k);
+          const auto = on && step.autoStamps.includes(k);
           if (on) weekCount++;
           const future = k > tKey;
           grid.append(el('button', {
-            class: `stamp-cell ${on ? 'on' : ''} ${k === tKey ? 'today' : ''} ${future ? 'future' : ''}`,
+            class: `stamp-cell ${on ? 'on' : ''} ${auto ? 'auto' : ''} ${k === tKey ? 'today' : ''} ${future ? 'future' : ''}`,
             disabled: future ? 'disabled' : null,
             onclick: future ? null : () => toggleStamp(k)
           },
             el('span', { class: 'stamp-num' }, String(dnum)),
-            on ? el('span', { class: 'stamp-mark', html: spriteSVG('stamp', { size: 22 }) }) : null
+            on ? el('span', { class: 'stamp-mark', html: spriteSVG('stamp', { size: 22 }) }) : null,
+            auto ? el('span', { class: 'stamp-auto-mark' }, '⚔') : null
           ));
         }
         if (weekMode) {

@@ -59,8 +59,9 @@ function normalizeStep(s) {
     memo: s.memo || '',
     imageId: s.imageId ?? null,
     clearedAt: s.clearedAt ?? null,
-    habit: s.habit ?? null,                       // { type:'week'|'month', target:number }
+    habit: s.habit ?? null,                       // { type:'week'|'month', target:number, linkTaskId? }
     stamps: Array.isArray(s.stamps) ? s.stamps : [], // ['YYYY-MM-DD', ...]
+    autoStamps: Array.isArray(s.autoStamps) ? s.autoStamps : [], // 特訓から自動で入ったぶん
     link: s.link ?? null,                         // { taskId, need } 特訓の継続と連動
     autoCleared: s.autoCleared ?? false
   };
