@@ -569,6 +569,39 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 }
 .mic-tip.is-on { max-height: 46px; opacity: 1; }
 
+/* 文字起こしが動いていないときの案内 */
+.trouble {
+  display: none;
+  gap: 8px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  padding: 11px 13px;
+  border: 1px solid var(--warn-line);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+.trouble.is-on { display: flex; }
+.trouble.is-fatal { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
+.trouble .link-btn { margin-left: auto; color: inherit; text-decoration: underline; }
+
+.diag {
+  margin: 0;
+  padding: 12px;
+  max-height: 40dvh;
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  color: var(--text-mid);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 .transcript-wrap {
   flex: 1;
   min-height: 100px;

@@ -1,7 +1,7 @@
 // 詳細画面: 議事録のタイトル・本文を編集し、書き出したり Claude に渡したりする
 import {
   el, fmtDateTime, fmtDuration, toast, confirmDialog, openSheet, closeSheet,
-  copyText, downloadFile, safeFileName, autoGrow, debounce, haptic
+  copyText, downloadFile, downloadBlob, safeFileName, autoGrow, debounce, haptic
 } from '../util.js';
 import { icon } from '../icons.js';
 import { getMinute, putMinute, deleteMinute, getAudio, deleteAudio, loadSettings } from '../db.js';
@@ -176,6 +176,13 @@ export async function renderDetail(root, id) {
           downloadFile(`${name}.txt`, body.value);
           closeSheet();
         }),
+        minute.hasAudio ? sheetAction('audio', 'wave', '録音した音声 (' + audioExt(minute.audioMime) + ')',
+          '文字起こしができなかったときに、音声そのものを取り出せます', async () => {
+            const rec = await getAudio(minute.id);
+            if (!rec?.blob) { toast('音声が見つかりませんでした', { error: true }); return; }
+            downloadBlob(`${name}.${audioExt(minute.audioMime || rec.type)}`, rec.blob);
+            closeSheet();
+          }) : null,
         navigator.share ? sheetAction('share', 'share', '他のアプリに送る', 'メールやチャットに共有します', async () => {
           try {
             await navigator.share({ title: minute.title || '議事録', text: buildMarkdown(minute) });
@@ -307,6 +314,14 @@ export async function renderDetail(root, id) {
     save.flush();
     if (audioUrl) { URL.revokeObjectURL(audioUrl); audioUrl = null; }
   };
+}
+
+// 音声の保存形式から拡張子を決める
+function audioExt(mime = '') {
+  if (mime.includes('mp4')) return 'm4a';
+  if (mime.includes('mpeg')) return 'mp3';
+  if (mime.includes('ogg')) return 'ogg';
+  return 'webm';
 }
 
 function sheetAction(key, iconName, label, help, onClick, danger = false) {

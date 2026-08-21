@@ -1,7 +1,7 @@
 // 録音画面: マイクの音声をその場で文字にして貯めていく。
 // 録音時間に上限はない。長時間でも重くならないよう、表示の行数と自動保存の頻度を調整する。
 import {
-  el, clear, fmtClock, fmtDate, toast, haptic, confirmDialog, openSheet, closeSheet, uid
+  el, clear, fmtClock, fmtDate, toast, haptic, confirmDialog, openSheet, closeSheet, uid, copyText
 } from '../util.js';
 import { icon } from '../icons.js';
 import { newMinute, putMinute, getMinute, putAudio, loadSettings, storageEstimate } from '../db.js';
@@ -39,6 +39,9 @@ export async function renderRecord(root, draftId) {
   let saved = false;
   let audioMime = minute.audioMime || '';
   let trimmedCount = 0;
+  let watchdogId = null;
+  let recStartedAt = 0;
+  let fallbackTried = false;
 
   const recorder = createRecorder();
   const wakeLock = createWakeLock();
@@ -59,6 +62,7 @@ export async function renderRecord(root, draftId) {
   const statusChip = el('div', { class: 'status-chip' }, el('span', { class: 'status-dot' }), el('span', { class: 'status-text' }, '待機中'));
   const levelBar = el('span', { class: 'level-fill' });
   const micTip = el('p', { class: 'mic-tip' });
+  const troubleBox = el('div', { class: 'trouble', role: 'status' });
   const transcript = el('div', { class: 'transcript', 'aria-live': 'polite' });
   const interimEl = el('p', { class: 'utt utt-interim' });
   const hint = el('p', { class: 'transcript-hint' }, isRecognitionSupported
@@ -103,6 +107,7 @@ export async function renderRecord(root, draftId) {
         el('div', { class: 'level' }, levelBar),
         micTip
       ),
+      troubleBox,
       el('section', { class: 'transcript-wrap' }, hint, transcript, interimEl)
     ),
     el('div', { class: 'rec-bar' },
@@ -178,7 +183,7 @@ export async function renderRecord(root, draftId) {
   }
 
   // ---- 操作 ----
-  async function onPrimary() {
+  function onPrimary() {
     haptic(15);
     if (state === 'idle') return start();
     if (state === 'recording') return onPause();
@@ -186,37 +191,49 @@ export async function renderRecord(root, draftId) {
     return undefined;
   }
 
-  async function start() {
+  // 重要: 音声認識の開始は「ユーザーが押した操作と同じ実行の流れ」で呼ぶ。
+  // await をひとつでもはさむとブラウザがユーザー操作と認めず、
+  // 許可も求めないまま無言で失敗する(録音だけ成功して文字起こしが空になる)。
+  function start() {
     settings = loadSettings();
-    // 長時間の録音でデータが消えないよう、保存領域の保持を頼んでおく
-    try { await navigator.storage?.persist?.(); } catch { /* 対応していなくても続行 */ }
-    await warnIfStorageTight();
+    recStartedAt = Date.now();
+    fallbackTried = false;
+    clearTrouble();
 
-    if (settings.saveAudio && isRecordingSupported) {
-      try {
-        audioMime = await recorder.start(settings.micMode);
-        recorderActive = true;
-      } catch {
-        recorderActive = false;
-        toast('音声の保存は使えません(文字起こしは続けます)', { error: true });
-      }
-    }
     if (isRecognitionSupported) {
       recognizer.start();
     } else {
-      toast(messageFor('unsupported'), { error: true });
+      showTrouble(messageFor('unsupported'), { fatal: true });
     }
-    if (settings.keepAwake) wakeLock.request();
 
     state = 'recording';
     tickFrom = Date.now();
     startTimer();
-    startMeter();
-    startMicCheck();
+    startWatchdog();
     setStatus('recording');
     syncButtons();
     if (!minute.startedAt || !existing) minute.startedAt = Date.now();
     autosave();
+
+    // 録音・画面ロック・保存領域の確認は、認識を始めたあとで進める
+    void startAudio();
+  }
+
+  async function startAudio() {
+    if (settings.keepAwake) wakeLock.request();
+    try { await navigator.storage?.persist?.(); } catch { /* 対応していなくても続行 */ }
+    warnIfStorageTight();
+    if (!settings.saveAudio || !isRecordingSupported) return;
+    if (state !== 'recording') return;
+    try {
+      audioMime = await recorder.start(settings.micMode);
+      recorderActive = true;
+      startMeter();
+      startMicCheck();
+    } catch {
+      recorderActive = false;
+      toast('音声の保存は使えません(文字起こしは続けます)', { error: true });
+    }
   }
 
   function onPause() {
@@ -226,6 +243,7 @@ export async function renderRecord(root, draftId) {
     recognizer.stop();
     recorder.pause();
     stopTimer();
+    stopWatchdog();
     stopMicCheck();
     micTip.textContent = '';
     setStatus('paused');
@@ -235,12 +253,15 @@ export async function renderRecord(root, draftId) {
 
   function resume() {
     if (state !== 'paused') return;
+    // ここでも認識の開始を最初に(ユーザー操作と同じ流れで)行う
+    if (isRecognitionSupported) recognizer.start();
     state = 'recording';
     tickFrom = Date.now();
-    if (isRecognitionSupported) recognizer.start();
+    recStartedAt = Date.now();
     recorder.resume();
     startTimer();
-    startMicCheck();
+    startWatchdog();
+    if (recorderActive) startMicCheck();
     setStatus('recording');
     syncButtons();
   }
@@ -256,6 +277,7 @@ export async function renderRecord(root, draftId) {
     stopTimer();
     stopMeter();
     stopMicCheck();
+    stopWatchdog();
     recognizer.stop();
     wakeLock.release();
     cancelAutosave();
@@ -459,6 +481,118 @@ export async function renderRecord(root, draftId) {
     levelBar.style.width = '0%';
   }
 
+  // ---- 文字起こしが動いていないときの検知 ----
+  // 録音はできているのに認識結果が1つも来ない場合を拾って、原因と対処を出す
+  function startWatchdog() {
+    stopWatchdog();
+    watchdogId = setInterval(() => {
+      if (state !== 'recording') return;
+      const st = recognizer.stats;
+      if (st.results > 0 || st.interims > 0) { clearTrouble(); return; }
+
+      const waited = Date.now() - recStartedAt;
+
+      // 認識が一度も始まっていない = 開始を拒否されている
+      if (waited > 5000 && st.started === 0) {
+        showTrouble(isStandaloneIOS()
+          ? 'ホーム画面から開いたアプリでは、iPhone の音声認識が動かないことがあります。Safari で開き直してお試しください。'
+          : '音声認識が開始できていません。マイクの許可と通信状態を確認して、録音を一度止めてから始め直してください。');
+        return;
+      }
+      // 録音がマイクを占有しているせいで認識できていない可能性 → 録音側を手放す
+      if (waited > 10000 && recorderActive && !fallbackTried) {
+        fallbackTried = true;
+        dropRecorder();
+        recognizer.restart();
+        showTrouble('文字起こしが始まらないため、音声の保存を止めて認識をやり直しています…');
+        return;
+      }
+      if (waited > 22000) {
+        showTrouble('音声は録れていますが、文字起こしができていません。通信状態を確認するか、設定の「音声も保存する」をオフにしてお試しください。');
+      }
+    }, 2000);
+  }
+
+  function stopWatchdog() {
+    clearInterval(watchdogId);
+    watchdogId = null;
+  }
+
+  // 録音(マイクの占有)だけをやめて、文字起こしを優先する
+  function dropRecorder() {
+    recorderActive = false;
+    stopMeter();
+    stopMicCheck();
+    setMicTip('');
+    try { recorder.cleanup(); } catch { /* 停止済み */ }
+  }
+
+  function isStandaloneIOS() {
+    const ios = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const standalone = navigator.standalone === true
+      || window.matchMedia?.('(display-mode: standalone)').matches;
+    return ios && standalone;
+  }
+
+  function showTrouble(message, { fatal = false } = {}) {
+    if (troubleBox.dataset.message === message) return;
+    troubleBox.dataset.message = message;
+    troubleBox.replaceChildren(
+      el('span', {}, message),
+      el('button', { class: 'link-btn', type: 'button', onclick: openDiagnostics }, '認識の状態を見る')
+    );
+    troubleBox.classList.add('is-on');
+    troubleBox.classList.toggle('is-fatal', fatal);
+  }
+
+  function clearTrouble() {
+    if (!troubleBox.classList.contains('is-on')) return;
+    troubleBox.classList.remove('is-on');
+    troubleBox.replaceChildren();
+    delete troubleBox.dataset.message;
+  }
+
+  // 端末側の状況をまとめて表示する(うまくいかないときの切り分け用)
+  function diagnosticsText() {
+    const st = recognizer.stats;
+    const track = recorder.appliedSettings();
+    return [
+      `音声認識API: ${isRecognitionSupported ? 'あり' : 'なし'}`,
+      `録音API: ${isRecordingSupported ? 'あり' : 'なし'}`,
+      `開始要求: ${st.startCalls} / 実際に開始: ${st.started} / 終了: ${st.ends}`,
+      `確定した認識: ${st.results} / 認識中テキスト: ${st.interims} / 無音終了: ${st.noSpeech}`,
+      `直近のエラー: ${st.lastError || 'なし'}`,
+      `音声の保存: ${recorderActive ? '実行中' : (settings.saveAudio ? '停止' : 'オフ')}`,
+      `マイク設定: ${track ? JSON.stringify({ ec: track.echoCancellation, ns: track.noiseSuppression, agc: track.autoGainControl }) : '不明'}`,
+      `通信: ${navigator.onLine ? 'オンライン' : 'オフライン'} / 安全な接続: ${window.isSecureContext ? 'はい' : 'いいえ'}`,
+      `表示: ${isStandaloneIOS() ? 'ホーム画面のアプリ(iOS)' : 'ブラウザ'}`,
+      `UA: ${navigator.userAgent}`
+    ].join('\n');
+  }
+
+  async function openDiagnostics() {
+    let mic = '不明';
+    try { mic = (await navigator.permissions?.query?.({ name: 'microphone' }))?.state || '不明'; } catch { /* 未対応 */ }
+    const text = `${diagnosticsText()}\nマイク許可: ${mic}`;
+    openSheet('認識の状態',
+      el('div', { class: 'sheet-body' },
+        el('p', { class: 'field-help' }, '文字起こしがうまくいかないときは、この内容をそのまま伝えてください。'),
+        el('pre', { class: 'diag' }, text),
+        el('div', { class: 'sheet-btns' },
+          el('button', { class: 'btn btn-ghost', type: 'button', onclick: closeSheet }, '閉じる'),
+          el('button', {
+            class: 'btn btn-primary',
+            type: 'button',
+            onclick: async () => {
+              const ok = await copyText(text);
+              toast(ok ? 'コピーしました' : 'コピーできませんでした', { error: !ok });
+            }
+          }, 'コピー')
+        )
+      )
+    );
+  }
+
   // 入力音量を見て、拾えていないときに置き方を案内する
   function startMicCheck() {
     stopMicCheck();
@@ -490,12 +624,13 @@ export async function renderRecord(root, draftId) {
     micTip.classList.toggle('is-on', Boolean(text));
   }
 
-  async function warnIfStorageTight() {
-    const est = await storageEstimate();
-    if (!est?.quota) return;
-    if (est.usage / est.quota > 0.9) {
-      toast('端末の保存領域が少なくなっています。古い議事録の削除をおすすめします', { error: true });
-    }
+  function warnIfStorageTight() {
+    storageEstimate().then((est) => {
+      if (!est?.quota) return;
+      if (est.usage / est.quota > 0.9) {
+        toast('端末の保存領域が少なくなっています。古い議事録の削除をおすすめします', { error: true });
+      }
+    }).catch(() => { /* 取得できなくても録音は続ける */ });
   }
 
   // 手入力で発言を足す(認識できなかった部分の補完・未対応ブラウザ用)
@@ -549,6 +684,7 @@ export async function renderRecord(root, draftId) {
     stopTimer();
     stopMeter();
     stopMicCheck();
+    stopWatchdog();
     recognizer.stop();
     wakeLock.release();
     if (!saved && (state === 'recording' || state === 'paused' || segments.length)) {

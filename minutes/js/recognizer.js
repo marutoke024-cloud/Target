@@ -36,6 +36,20 @@ export function createRecognizer({
   let lastResultAt = 0;
   let pendingInterim = '';
 
+  // 不具合を切り分けるための記録(診断表示に使う)
+  const stats = {
+    startCalls: 0,     // start() を呼んだ回数
+    started: 0,        // 実際に認識が始まった回数
+    results: 0,        // 確定した認識結果の数
+    interims: 0,       // 認識中テキストが届いた回数
+    ends: 0,           // 認識が終了した回数
+    noSpeech: 0,       // 無音で終わった回数
+    lastError: '',
+    lastErrorAt: 0,
+    lastResultAt: 0,
+    lastStartAt: 0
+  };
+
   function build() {
     const r = new SR();
     r.lang = lang;
@@ -46,11 +60,14 @@ export function createRecognizer({
     r.onstart = () => {
       starting = false;
       backoff = QUICK_RESTART_MS;
+      stats.started++;
+      stats.lastStartAt = Date.now();
       onStatus('listening');
     };
 
     r.onresult = (event) => {
       lastResultAt = Date.now();
+      stats.lastResultAt = lastResultAt;
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
@@ -59,6 +76,7 @@ export function createRecognizer({
         if (result.isFinal) {
           pendingInterim = '';
           if (text) {
+            stats.results++;
             onFinal(text, {
               confidence: typeof best?.confidence === 'number' ? best.confidence : null,
               alternatives: collectAlternatives(result)
@@ -69,12 +87,16 @@ export function createRecognizer({
         }
       }
       pendingInterim = interim.trim();
+      if (pendingInterim) stats.interims++;
       onInterim(pendingInterim);
     };
 
     r.onerror = (event) => {
       const code = event.error;
-      if (code === 'no-speech' || code === 'aborted') return; // 無音・自動停止は通常運転
+      stats.lastError = code;
+      stats.lastErrorAt = Date.now();
+      if (code === 'no-speech') { stats.noSpeech++; return; }
+      if (code === 'aborted') return; // 自動停止は通常運転
       if (FATAL.has(code)) {
         wanted = false;
         onStatus('stopped');
@@ -94,6 +116,7 @@ export function createRecognizer({
 
     r.onend = () => {
       starting = false;
+      stats.ends++;
       // 確定しないまま切れた分を取りこぼさない
       const leftover = pendingInterim.trim();
       pendingInterim = '';
@@ -143,9 +166,12 @@ export function createRecognizer({
   }
 
   return {
+    // 注意: ブラウザは「ユーザー操作と同じ実行の流れ」でしか認識開始を許さない。
+    // await をはさんだあとに呼ぶと、無言で失敗することがある
     start() {
       if (!SR) { onError('unsupported', messageFor('unsupported')); return false; }
       wanted = true;
+      stats.startCalls++;
       backoff = QUICK_RESTART_MS;
       startNow();
       return true;
@@ -173,7 +199,8 @@ export function createRecognizer({
       backoff = QUICK_RESTART_MS;
       scheduleStart();
     },
-    get running() { return wanted; }
+    get running() { return wanted; },
+    get stats() { return { ...stats }; }
   };
 }
 
