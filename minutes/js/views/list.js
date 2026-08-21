@@ -1,10 +1,10 @@
 // 一覧画面: 保存済みの議事録を新しい順に表示する
-import { el, clear, fmtRelative, fmtDuration, openSheet, closeSheet, toast, haptic, confirmDialog } from '../util.js';
+import { el, clear, fmtRelative, fmtDuration, openSheet, closeSheet, toast, haptic, confirmDialog, copyText } from '../util.js';
 import { icon } from '../icons.js';
 import { listMinutes, loadSettings, saveSettings, storageEstimate } from '../db.js';
 import { LINE_PRESETS, countChars } from '../format.js';
 import { fmtBytes, isRecordingSupported, MIC_MODES } from '../recorder.js';
-import { isRecognitionSupported } from '../recognizer.js';
+import { isRecognitionSupported, createRecognizer } from '../recognizer.js';
 import { THEMES, loadTheme, saveTheme } from '../theme.js';
 
 const LINE_OPTIONS = [
@@ -150,6 +150,8 @@ async function openSettings() {
           toast(`マイクを「${opt.label}」に設定しました`);
         })
       ),
+      sheetLink('文字起こしをテストする', '10秒話しかけて、この端末で認識が動くか確かめます', 'mic',
+        () => openSelfTest()),
       sheetLink('用語辞書', '固有名詞や専門用語の聞き間違いを自動で直します', 'text',
         () => openTerms(), `${s.terms.length}件`),
       toggle('フィラーを取り除く', '「えー」「あのー」などの言いよどみを本文から省きます', s.fillers,
@@ -168,8 +170,12 @@ async function openSettings() {
       ),
       toggle('タイムスタンプを入れる', '発言のまとまりごとに [12:34] を挿入します', s.timestamps,
         (v) => saveSettings({ timestamps: v })),
-      toggle('音声も保存する', '録音した音声を端末内に残せます。認識が不安定なときはオフに', s.saveAudio,
-        (v) => saveSettings({ saveAudio: v }), !isRecordingSupported),
+      toggle('音声も保存する', s.audioBlocked
+        ? 'この端末では録音中に文字起こしができないため、自動でオフにしました'
+        : '音声を端末内に残します。ただし多くの端末はマイクを同時に使えず、文字起こしが止まることがあります',
+      s.saveAudio && !s.audioBlocked,
+      (v) => saveSettings({ saveAudio: v, audioBlocked: v ? false : s.audioBlocked }),
+      !isRecordingSupported),
       toggle('録音中は画面を消さない', '長い会議でも画面ロックで認識が止まりにくくなります', s.keepAwake,
         (v) => saveSettings({ keepAwake: v })),
 
@@ -194,6 +200,83 @@ function sheetLink(label, help, iconName, onClick, badge = '') {
     ),
     badge ? el('span', { class: 'sheet-action-badge' }, badge) : null
   );
+}
+
+// 文字起こしの自己診断: 認識だけを10秒動かして、何が起きているかを見せる
+function openSelfTest() {
+  const TEST_MS = 10000;
+  const statusLine = el('p', { class: 'field-label' }, 'マイクに向かって話しかけてください…');
+  const heard = el('div', { class: 'test-heard' });
+  const log = el('pre', { class: 'diag' }, '');
+  let recognizer = null;
+  let timer = null;
+  let finished = false;
+  const events = [];
+  const note = (line) => {
+    events.push(`${new Date().toLocaleTimeString('ja-JP')} ${line}`);
+    log.textContent = events.join('\n');
+  };
+
+  const finish = (verdict) => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    try { recognizer?.stop(); } catch { /* 停止済み */ }
+    const st = recognizer?.stats || {};
+    statusLine.textContent = verdict;
+    note(`結果: 開始${st.started ?? 0}回 / 認識${st.results ?? 0}件 / 途中経過${st.interims ?? 0}回 / エラー ${st.lastError || 'なし'}`);
+    note(`UA: ${navigator.userAgent}`);
+  };
+
+  const start = () => {
+    if (!isRecognitionSupported) {
+      statusLine.textContent = 'このブラウザは音声認識に対応していません';
+      note('SpeechRecognition API がありません');
+      return;
+    }
+    note('認識を開始します');
+    recognizer = createRecognizer({
+      onFinal: (text) => {
+        heard.append(el('p', { class: 'test-line' }, text));
+        note(`確定: ${text}`);
+      },
+      onInterim: (text) => { if (text) statusLine.textContent = `聞き取り中: ${text}`; },
+      onStatus: (s) => note(`状態: ${s}`),
+      onError: (code, message) => note(`エラー: ${code} — ${message}`)
+    });
+    recognizer.start();
+    timer = setTimeout(() => {
+      const st = recognizer.stats;
+      if (st.results > 0) finish('文字起こしは正常に動いています');
+      else if (st.started === 0) finish('認識を開始できませんでした(許可・通信・ブラウザの対応を確認してください)');
+      else finish('認識は始まりましたが、言葉を拾えませんでした(マイクに近づけて、もう一度お試しください)');
+    }, TEST_MS);
+  };
+
+  openSheet('文字起こしのテスト',
+    el('div', { class: 'sheet-body' },
+      el('p', { class: 'field-help' }, '音声の保存は行わず、文字起こしだけを10秒間試します。'),
+      statusLine,
+      heard,
+      log,
+      el('div', { class: 'sheet-btns' },
+        el('button', {
+          class: 'btn btn-ghost',
+          type: 'button',
+          onclick: () => { finish('テストを中止しました'); closeSheet(); openSettings(); }
+        }, '閉じる'),
+        el('button', {
+          class: 'btn btn-primary',
+          type: 'button',
+          onclick: async () => {
+            const ok = await copyText(events.join('\n'));
+            toast(ok ? 'コピーしました' : 'コピーできませんでした', { error: !ok });
+          }
+        }, '結果をコピー')
+      )
+    )
+  );
+  start();
 }
 
 // 用語辞書: 「正しい表記」と「聞き間違えられる表記」を登録する

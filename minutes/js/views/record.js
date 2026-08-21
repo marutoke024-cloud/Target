@@ -4,7 +4,7 @@ import {
   el, clear, fmtClock, fmtDate, toast, haptic, confirmDialog, openSheet, closeSheet, uid, copyText
 } from '../util.js';
 import { icon } from '../icons.js';
-import { newMinute, putMinute, getMinute, putAudio, loadSettings, storageEstimate } from '../db.js';
+import { newMinute, putMinute, getMinute, putAudio, loadSettings, saveSettings, storageEstimate } from '../db.js';
 import { buildBody, formatSegmentText } from '../format.js';
 import { createRecognizer, isRecognitionSupported, messageFor } from '../recognizer.js';
 import { createRecorder, createWakeLock, isRecordingSupported } from '../recorder.js';
@@ -42,6 +42,9 @@ export async function renderRecord(root, draftId) {
   let watchdogId = null;
   let recStartedAt = 0;
   let fallbackTried = false;
+  let audioPending = false;      // 音声保存を待機させているか
+  let recorderStartedAt = 0;
+  let resultsAtRecorderStart = 0;
 
   const recorder = createRecorder();
   const wakeLock = createWakeLock();
@@ -124,6 +127,7 @@ export async function renderRecord(root, draftId) {
   const recognizer = createRecognizer({
     onFinal: (text, meta = {}) => {
       if (state !== 'recording') return;
+      if (audioPending) { audioPending = false; void startAudio(); }
       addSegment({
         t: elapsed + (tickFrom ? Date.now() - tickFrom : 0),
         text,
@@ -143,12 +147,9 @@ export async function renderRecord(root, draftId) {
     onError: (code, message, opts = {}) => {
       // マイクが掴めない場合は、録音より文字起こしを優先して録音側を手放す
       if (opts.micBusy) {
-        if (recorderActive && !micRetried) {
+        if ((recorderActive || audioPending) && !micRetried) {
           micRetried = true;
-          recorderActive = false;
-          recorder.cleanup();
-          stopMeter();
-          toast('マイクを認識側にゆずりました(音声の保存は中止します)', { error: true });
+          dropRecorder({ remember: true });
           recognizer.restart();
           return;
         }
@@ -215,19 +216,26 @@ export async function renderRecord(root, draftId) {
     if (!minute.startedAt || !existing) minute.startedAt = Date.now();
     autosave();
 
-    // 録音・画面ロック・保存領域の確認は、認識を始めたあとで進める
-    void startAudio();
+    // 多くの Android 端末はマイクを同時に渡せない。録音を先に始めると
+    // 文字起こしがマイクを取れないため、認識が動いたのを確認してから録音する
+    audioPending = Boolean(settings.saveAudio && !settings.audioBlocked && isRecordingSupported);
+    void prepare();
   }
 
-  async function startAudio() {
+  async function prepare() {
     if (settings.keepAwake) wakeLock.request();
     try { await navigator.storage?.persist?.(); } catch { /* 対応していなくても続行 */ }
     warnIfStorageTight();
-    if (!settings.saveAudio || !isRecordingSupported) return;
-    if (state !== 'recording') return;
+  }
+
+  // 認識が動いていることを確かめてから録音を足す
+  async function startAudio() {
+    if (state !== 'recording' || recorderActive) return;
     try {
       audioMime = await recorder.start(settings.micMode);
       recorderActive = true;
+      recorderStartedAt = Date.now();
+      resultsAtRecorderStart = recognizer.stats.results;
       startMeter();
       startMicCheck();
     } catch {
@@ -488,6 +496,19 @@ export async function renderRecord(root, draftId) {
     watchdogId = setInterval(() => {
       if (state !== 'recording') return;
       const st = recognizer.stats;
+
+      // 録音を足したとたんに認識が止まった = この端末はマイクを同時に渡せない
+      if (recorderActive && recorderStartedAt) {
+        const sinceRecorder = Date.now() - recorderStartedAt;
+        const gained = st.results - resultsAtRecorderStart;
+        if (sinceRecorder > 9000 && gained === 0) {
+          dropRecorder({ remember: true });
+          recognizer.restart();
+          showTrouble('音声の保存を始めたら文字起こしが止まったため、録音をやめて文字起こしに戻しました。');
+          return;
+        }
+      }
+
       if (st.results > 0 || st.interims > 0) { clearTrouble(); return; }
 
       const waited = Date.now() - recStartedAt;
@@ -500,15 +521,15 @@ export async function renderRecord(root, draftId) {
         return;
       }
       // 録音がマイクを占有しているせいで認識できていない可能性 → 録音側を手放す
-      if (waited > 10000 && recorderActive && !fallbackTried) {
+      if (waited > 6000 && recorderActive && !fallbackTried) {
         fallbackTried = true;
-        dropRecorder();
+        dropRecorder({ remember: true });
         recognizer.restart();
         showTrouble('文字起こしが始まらないため、音声の保存を止めて認識をやり直しています…');
         return;
       }
-      if (waited > 22000) {
-        showTrouble('音声は録れていますが、文字起こしができていません。通信状態を確認するか、設定の「音声も保存する」をオフにしてお試しください。');
+      if (waited > 15000) {
+        showTrouble('話しても文字になりません。設定の「文字起こしをテストする」で状態を確認してください。');
       }
     }, 2000);
   }
@@ -519,12 +540,18 @@ export async function renderRecord(root, draftId) {
   }
 
   // 録音(マイクの占有)だけをやめて、文字起こしを優先する
-  function dropRecorder() {
+  function dropRecorder({ remember = false } = {}) {
+    audioPending = false;
     recorderActive = false;
+    recorderStartedAt = 0;
     stopMeter();
     stopMicCheck();
     setMicTip('');
     try { recorder.cleanup(); } catch { /* 停止済み */ }
+    if (remember) {
+      settings = saveSettings({ audioBlocked: true });
+      toast('この端末では録音と文字起こしを同時にできないため、音声の保存をオフにしました', { error: true });
+    }
   }
 
   function isStandaloneIOS() {
@@ -562,7 +589,8 @@ export async function renderRecord(root, draftId) {
       `開始要求: ${st.startCalls} / 実際に開始: ${st.started} / 終了: ${st.ends}`,
       `確定した認識: ${st.results} / 認識中テキスト: ${st.interims} / 無音終了: ${st.noSpeech}`,
       `直近のエラー: ${st.lastError || 'なし'}`,
-      `音声の保存: ${recorderActive ? '実行中' : (settings.saveAudio ? '停止' : 'オフ')}`,
+      `音声の保存: ${recorderActive ? '実行中' : audioPending ? '待機中' : (settings.saveAudio ? '停止' : 'オフ')}`,
+      `同時利用の可否: ${settings.audioBlocked ? 'この端末は不可と判定済み' : '未判定'}`,
       `マイク設定: ${track ? JSON.stringify({ ec: track.echoCancellation, ns: track.noiseSuppression, agc: track.autoGainControl }) : '不明'}`,
       `通信: ${navigator.onLine ? 'オンライン' : 'オフライン'} / 安全な接続: ${window.isSecureContext ? 'はい' : 'いいえ'}`,
       `表示: ${isStandaloneIOS() ? 'ホーム画面のアプリ(iOS)' : 'ブラウザ'}`,

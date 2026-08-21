@@ -94,7 +94,10 @@ const SETTINGS_KEY = 'minutes.settings';
 const DEFAULT_SETTINGS = {
   lineLen: 22,        // 1行の目安文字数(スマホの1行に収まる長さ)
   timestamps: false,  // 本文にタイムスタンプを入れる
-  saveAudio: true,    // 音声も端末に保存する
+  // 音声の同時録音。多くの Android 端末はマイクを1つの用途にしか渡せず、
+  // 録音しながらだと文字起こしが動かないため、既定はオフ
+  saveAudio: false,
+  audioBlocked: false, // この端末では録音と文字起こしを同時にできないと判明した
   keepAwake: true,    // 録音中は画面を消さない
   micMode: 'near',    // マイクの前処理: near(近くの声) / far(遠くの声)
   fillers: true,      // 「えー」「あのー」などのフィラーを取り除く
