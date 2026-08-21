@@ -58,7 +58,7 @@ const BREAK_PARTICLES = [
   'ということで', 'について', 'に関して', 'に対して', 'によって',
   'けれども', 'ですけど', 'ますけど', 'ですが', 'ますが', 'ながら',
   'なので', 'では', 'には', 'とは', 'ので', 'から', 'けど', 'ため',
-  'たら', 'なら', 'まで', 'より', 'は', 'が', 'を', 'に', 'で', 'と', 'も', 'や', 'て'
+  'たら', 'なら', 'まで', 'より', 'は', 'が', 'を', 'に', 'で', 'と', 'も', 'や', 'て', 'の', 'へ'
 ].sort(byLengthDesc);
 
 // タイムスタンプ行 [12:34] / [1:02:03]
@@ -177,6 +177,9 @@ const MIN_TAIL = 4;
 // 「です・ます」や、「〜しています」のような て形 + 補助動詞を割らない
 const AUX_AFTER_TE = new Set([...'いおくみあまきしゆ']);
 
+// 行頭が助詞1文字になる位置では折り返さない(「さんと / の打ち合わせ」を防ぐ)
+const PARTICLE_HEAD = new Set([...'のがをはにへもやとでかね']);
+
 function splitsWord(s, i) {
   if (COPULA_HEAD.test(s.slice(i - 1))) return true;
   const prev = s[i - 1];
@@ -214,6 +217,7 @@ function findCut(s, max) {
   const hi2 = Math.min(s.length - 1, max);
   for (let i = hi2; i >= min; i--) {
     if (depth[i] > 0 || badLineHead(s[i]) || splitsWord(s, i) || s.length - i < MIN_TAIL) continue;
+    if (PARTICLE_HEAD.has(s[i])) continue;
     if (tailEndsAt(s, i, BREAK_PARTICLES)) return i;
   }
   // 4) 諦めて max で切る(行頭に句読点が来ないよう1文字ずらす)
@@ -264,17 +268,67 @@ export function unwrap(text) {
   return paras.join('\n');
 }
 
+// ---- 用語辞書による置換 ----
+// 音声認識は固有名詞や専門用語を苦手とするので、聞き間違えられやすい表記を
+// 正しい表記へ置き換える。ひらがな/カタカナの違いは吸収する。
+const kataToHira = (s) => s.replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+const hiraToKata = (s) => s.replace(/[ぁ-ゖ]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
+
+export function applyTerms(text, terms = []) {
+  let out = String(text ?? '');
+  if (!out || !terms.length) return out;
+  for (const term of terms) {
+    const right = String(term?.right ?? '').trim();
+    if (!right) continue;
+    const wrongs = Array.isArray(term?.wrong) ? term.wrong : [];
+    // 長い表記から順に置き換える(短い語が先に当たって崩れるのを防ぐ)
+    const variants = new Set();
+    for (const w of wrongs) {
+      const word = String(w ?? '').trim();
+      if (!word || word === right) continue;
+      variants.add(word);
+      variants.add(kataToHira(word));
+      variants.add(hiraToKata(word));
+    }
+    for (const v of [...variants].sort((a, b) => b.length - a.length)) {
+      if (v && v !== right) out = out.split(v).join(right);
+    }
+  }
+  return out;
+}
+
+// ---- フィラー(えー・あのー など)の除去 ----
+// 語頭や句読点の直後にあるものだけを消す。「あの人」のような通常の語は残す
+const FILLER = '(?:えーっと|ええっと|えーと|えっと|ええと|あのう|あのー|そのー|うーん|んー|えー|あー|まあ|ええ)';
+const FILLER_HEAD = new RegExp(`(^|[。、！？\n])[ 　]*(?:${FILLER}[、,]?[ 　]*)+`, 'g');
+const FILLER_MID = new RegExp(`、[ 　]*${FILLER}[ 　]*、`, 'g');
+
+export function stripFillers(text) {
+  let s = String(text ?? '');
+  if (!s) return '';
+  s = s.replace(FILLER_MID, '、');
+  s = s.replace(FILLER_HEAD, '$1');
+  return s.trim();
+}
+
+// 用語辞書 → 句読点の補完 → フィラー除去 の順に整える。
+// フィラーは句読点が入ったあとの方が「です。あのー議題は」のような並びを正しく落とせる
+function refine(text, { terms = [], fillers = false } = {}) {
+  const punctuated = punctuate(applyTerms(text, terms));
+  return closeSentence(fillers ? stripFillers(punctuated) : punctuated);
+}
+
 // 認識結果1つぶんのテキストを整える
-export function formatSegmentText(text, max = DEFAULT_MAX) {
-  const punctuated = closeSentence(punctuate(text));
-  return wrap(punctuated, max);
+export function formatSegmentText(text, max = DEFAULT_MAX, opts = {}) {
+  return wrap(refine(text, opts), max);
 }
 
 // 認識結果の配列から議事録本文を組み立てる
-export function buildBody(segments = [], { max = DEFAULT_MAX, timestamps = false } = {}) {
+export function buildBody(segments = [], opts = {}) {
+  const { max = DEFAULT_MAX, timestamps = false } = opts;
   const blocks = [];
   for (const seg of segments) {
-    const body = formatSegmentText(seg.text, max);
+    const body = formatSegmentText(seg.text, max, opts);
     if (!body) continue;
     blocks.push(timestamps && seg.t != null ? `[${clock(seg.t)}]\n${body}` : body);
   }
@@ -287,11 +341,11 @@ export function reflow(text, max = DEFAULT_MAX) {
 }
 
 // 編集済みの本文に句読点も補い直す
-export function reformat(text, max = DEFAULT_MAX) {
+export function reformat(text, max = DEFAULT_MAX, opts = {}) {
   const paras = unwrap(text).split('\n').map((line) => {
     const t = line.trim();
     if (!t || TIME_LINE.test(t)) return t;
-    return closeSentence(punctuate(t));
+    return refine(t, opts);
   });
   return wrap(paras.join('\n'), max);
 }

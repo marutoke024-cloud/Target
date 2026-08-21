@@ -121,8 +121,11 @@ export async function renderDetail(root, id) {
 
   // ---- 本文の整形 ----
   function applyFormat(mode) {
-    const max = loadSettings().lineLen;
-    const next = mode === 'reformat' ? reformat(body.value, max) : reflow(body.value, max);
+    const s = loadSettings();
+    const max = s.lineLen;
+    const next = mode === 'reformat'
+      ? reformat(body.value, max, { terms: s.terms, fillers: s.fillers })
+      : reflow(body.value, max);
     if (next === body.value) { toast('すでに整っています'); return; }
     body.value = next;
     counter.textContent = `${countChars(next)}字`;
@@ -141,8 +144,10 @@ export async function renderDetail(root, id) {
       });
       if (!ok) return;
     }
-    const max = loadSettings().lineLen;
-    const next = buildBody(minute.segments, { max, timestamps });
+    const s = loadSettings();
+    const next = buildBody(minute.segments, {
+      max: s.lineLen, timestamps, terms: s.terms, fillers: s.fillers
+    });
     body.value = next;
     counter.textContent = `${countChars(next)}字`;
     fit();

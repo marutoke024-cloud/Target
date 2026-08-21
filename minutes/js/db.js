@@ -95,12 +95,19 @@ const DEFAULT_SETTINGS = {
   lineLen: 22,        // 1行の目安文字数(スマホの1行に収まる長さ)
   timestamps: false,  // 本文にタイムスタンプを入れる
   saveAudio: true,    // 音声も端末に保存する
-  keepAwake: true     // 録音中は画面を消さない
+  keepAwake: true,    // 録音中は画面を消さない
+  micMode: 'near',    // マイクの前処理: near(近くの声) / far(遠くの声)
+  fillers: true,      // 「えー」「あのー」などのフィラーを取り除く
+  markUncertain: true, // 認識の自信が低い発言に印をつける
+  terms: []           // 用語辞書 [{ right: '正しい表記', wrong: ['聞き間違い', ...] }]
 };
 
 export function loadSettings() {
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+    const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+    const s = { ...DEFAULT_SETTINGS, ...saved };
+    s.terms = Array.isArray(s.terms) ? s.terms : [];
+    return s;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

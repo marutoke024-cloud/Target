@@ -1,5 +1,5 @@
 /* 議事録レコーダー Service Worker: アプリシェルをキャッシュしてオフラインでも起動できるようにする */
-const VERSION = 'mn-v1';
+const VERSION = 'mn-v2';
 const SHELL = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const SHELL = [
   './js/util.js',
   './js/db.js',
   './js/icons.js',
+  './js/theme.js',
   './js/format.js',
   './js/prompt.js',
   './js/recognizer.js',

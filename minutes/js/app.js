@@ -3,6 +3,10 @@ import { renderList } from './views/list.js';
 import { renderRecord } from './views/record.js';
 import { renderDetail } from './views/detail.js';
 import { closeSheet, el, toast } from './util.js';
+import { applyTheme, watchSystemTheme } from './theme.js';
+
+applyTheme();
+watchSystemTheme();
 
 const app = document.getElementById('app');
 let cleanup = null;
