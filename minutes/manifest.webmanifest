@@ -1,0 +1,18 @@
+{
+  "name": "議事録レコーダー",
+  "short_name": "議事録",
+  "description": "講演会や会議を録音してその場で文字起こし。編集した議事録をそのまま Claude に渡してレポートを作れます。",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f4f7",
+  "theme_color": "#f3f4f7",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
