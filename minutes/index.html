@@ -5,7 +5,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>議事録レコーダー</title>
   <meta name="description" content="講演会や会議を録音してその場で文字起こし。議事録を編集して、そのまま Claude にレポート作成を依頼できるアプリ">
-  <meta name="theme-color" content="#f3f4f7">
+  <meta name="theme-color" content="#15161c">
+  <!-- 初期表示のちらつきを防ぐため、CSSより先に配色を決める(既定はダーク) -->
+  <script>
+    (function () {
+      var t = 'dark';
+      try {
+        var saved = localStorage.getItem('minutes.theme');
+        if (saved === 'dark' || saved === 'light' || saved === 'system') t = saved;
+      } catch (e) { /* 参照できない場合は既定のまま */ }
+      var resolved = t === 'system'
+        ? (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+        : t;
+      document.documentElement.dataset.theme = t;
+      document.documentElement.style.colorScheme = resolved;
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', resolved === 'light' ? '#f3f4f7' : '#15161c');
+    })();
+  </script>
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon-192.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">

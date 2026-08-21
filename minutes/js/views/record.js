@@ -1,14 +1,22 @@
-// 録音画面: マイクの音声をその場で文字にして貯めていく
+// 録音画面: マイクの音声をその場で文字にして貯めていく。
+// 録音時間に上限はない。長時間でも重くならないよう、表示の行数と自動保存の頻度を調整する。
 import {
-  el, clear, fmtClock, fmtDate, toast, haptic, confirmDialog, openSheet, closeSheet, uid, debounce
+  el, clear, fmtClock, fmtDate, toast, haptic, confirmDialog, openSheet, closeSheet, uid
 } from '../util.js';
 import { icon } from '../icons.js';
-import { newMinute, putMinute, getMinute, putAudio, loadSettings } from '../db.js';
+import { newMinute, putMinute, getMinute, putAudio, loadSettings, storageEstimate } from '../db.js';
 import { buildBody, formatSegmentText } from '../format.js';
 import { createRecognizer, isRecognitionSupported, messageFor } from '../recognizer.js';
 import { createRecorder, createWakeLock, isRecordingSupported } from '../recorder.js';
 
 const WEEK = ['日', '月', '火', '水', '木', '金', '土'];
+
+// 画面に残す発言の最大数(長時間録音でも描画が重くならないように)
+const MAX_VISIBLE = 300;
+// 入力音量を見直す間隔
+const MIC_CHECK_MS = 15000;
+// この確信度を下回る認識結果には印をつける
+const LOW_CONFIDENCE = 0.6;
 
 function defaultTitle(kind) {
   const d = new Date();
@@ -16,7 +24,7 @@ function defaultTitle(kind) {
 }
 
 export async function renderRecord(root, draftId) {
-  const settings = loadSettings();
+  let settings = loadSettings();
   const existing = draftId ? await getMinute(draftId) : null;
 
   const minute = existing || newMinute({ id: uid(), title: '' });
@@ -27,12 +35,15 @@ export async function renderRecord(root, draftId) {
   let tickFrom = 0;
   let timerId = null;
   let meterId = null;
+  let micCheckId = null;
   let saved = false;
   let audioMime = minute.audioMime || '';
+  let trimmedCount = 0;
 
   const recorder = createRecorder();
   const wakeLock = createWakeLock();
   let recorderActive = false;
+  let micRetried = false;
 
   // ---- DOM ----
   const titleInput = el('input', {
@@ -47,6 +58,7 @@ export async function renderRecord(root, draftId) {
   const clock = el('div', { class: 'clock' }, fmtClock(elapsed));
   const statusChip = el('div', { class: 'status-chip' }, el('span', { class: 'status-dot' }), el('span', { class: 'status-text' }, '待機中'));
   const levelBar = el('span', { class: 'level-fill' });
+  const micTip = el('p', { class: 'mic-tip' });
   const transcript = el('div', { class: 'transcript', 'aria-live': 'polite' });
   const interimEl = el('p', { class: 'utt utt-interim' });
   const hint = el('p', { class: 'transcript-hint' }, isRecognitionSupported
@@ -88,7 +100,8 @@ export async function renderRecord(root, draftId) {
       el('div', { class: 'rec-stage' },
         statusChip,
         clock,
-        el('div', { class: 'level' }, levelBar)
+        el('div', { class: 'level' }, levelBar),
+        micTip
       ),
       el('section', { class: 'transcript-wrap' }, hint, transcript, interimEl)
     ),
@@ -104,13 +117,15 @@ export async function renderRecord(root, draftId) {
 
   // ---- 音声認識 ----
   const recognizer = createRecognizer({
-    onFinal: (text) => {
+    onFinal: (text, meta = {}) => {
       if (state !== 'recording') return;
-      const seg = { t: elapsed, text };
-      segments.push(seg);
-      paintSegment(seg);
-      updateHint();
-      autosave();
+      addSegment({
+        t: elapsed + (tickFrom ? Date.now() - tickFrom : 0),
+        text,
+        c: meta.confidence ?? null,
+        alts: meta.alternatives?.length ? meta.alternatives.slice(0, 2) : undefined,
+        r: meta.recovered || undefined
+      });
     },
     onInterim: (text) => {
       interimEl.textContent = text;
@@ -121,11 +136,46 @@ export async function renderRecord(root, draftId) {
       if (state === 'recording') setStatus(s === 'listening' ? 'recording' : 'reconnecting');
     },
     onError: (code, message, opts = {}) => {
+      // マイクが掴めない場合は、録音より文字起こしを優先して録音側を手放す
+      if (opts.micBusy) {
+        if (recorderActive && !micRetried) {
+          micRetried = true;
+          recorderActive = false;
+          recorder.cleanup();
+          stopMeter();
+          toast('マイクを認識側にゆずりました(音声の保存は中止します)', { error: true });
+          recognizer.restart();
+          return;
+        }
+        toast(message, { error: true });
+        return;
+      }
       if (opts.recoverable) { toast(message, { error: true }); return; }
       toast(message, { error: true });
       if (state === 'recording' || state === 'paused') finish(false, { silent: true });
     }
   });
+
+  // ---- 発言の追加 ----
+  // 認識の再開をまたぐと同じ言葉が二重に届くことがあるので、重なりを畳んでから積む
+  function addSegment(seg) {
+    const prev = segments[segments.length - 1];
+    if (prev && seg.t - prev.t < 4000) {
+      if (prev.text === seg.text) return;
+      if (seg.text.startsWith(prev.text) && prev.r) {
+        // 取りこぼし救済ぶんが、あとから正式な認識結果で置き換わった
+        Object.assign(prev, seg, { t: prev.t });
+        repaintLast(prev);
+        autosave();
+        return;
+      }
+      if (prev.text.includes(seg.text)) return;
+    }
+    segments.push(seg);
+    paintSegment(seg);
+    updateHint();
+    autosave();
+  }
 
   // ---- 操作 ----
   async function onPrimary() {
@@ -137,11 +187,16 @@ export async function renderRecord(root, draftId) {
   }
 
   async function start() {
+    settings = loadSettings();
+    // 長時間の録音でデータが消えないよう、保存領域の保持を頼んでおく
+    try { await navigator.storage?.persist?.(); } catch { /* 対応していなくても続行 */ }
+    await warnIfStorageTight();
+
     if (settings.saveAudio && isRecordingSupported) {
       try {
-        audioMime = await recorder.start();
+        audioMime = await recorder.start(settings.micMode);
         recorderActive = true;
-      } catch (err) {
+      } catch {
         recorderActive = false;
         toast('音声の保存は使えません(文字起こしは続けます)', { error: true });
       }
@@ -157,6 +212,7 @@ export async function renderRecord(root, draftId) {
     tickFrom = Date.now();
     startTimer();
     startMeter();
+    startMicCheck();
     setStatus('recording');
     syncButtons();
     if (!minute.startedAt || !existing) minute.startedAt = Date.now();
@@ -170,9 +226,11 @@ export async function renderRecord(root, draftId) {
     recognizer.stop();
     recorder.pause();
     stopTimer();
+    stopMicCheck();
+    micTip.textContent = '';
     setStatus('paused');
     syncButtons();
-    autosave.flush();
+    saveNow();
   }
 
   function resume() {
@@ -182,6 +240,7 @@ export async function renderRecord(root, draftId) {
     if (isRecognitionSupported) recognizer.start();
     recorder.resume();
     startTimer();
+    startMicCheck();
     setStatus('recording');
     syncButtons();
   }
@@ -196,9 +255,10 @@ export async function renderRecord(root, draftId) {
     setStatus('saving');
     stopTimer();
     stopMeter();
+    stopMicCheck();
     recognizer.stop();
     wakeLock.release();
-    autosave.cancel();
+    cancelAutosave();
 
     let blob = null;
     if (recorderActive) {
@@ -232,13 +292,15 @@ export async function renderRecord(root, draftId) {
 
   async function persist({ final = false } = {}) {
     const s = loadSettings();
-    const body = buildBody(segments, { max: s.lineLen, timestamps: s.timestamps });
+    const body = buildBody(segments, {
+      max: s.lineLen, timestamps: s.timestamps, terms: s.terms, fillers: s.fillers
+    });
     const record = {
       ...minute,
       title: titleInput.value.trim() || defaultTitle(minute.kind),
       segments,
       body,
-      durationMs: elapsed,
+      durationMs: elapsed + (tickFrom ? Date.now() - tickFrom : 0),
       hasAudio: minute.hasAudio || false,
       audioMime,
       draft: !final
@@ -247,7 +309,32 @@ export async function renderRecord(root, draftId) {
     return putMinute(record);
   }
 
-  const autosave = debounce(() => { persist().catch(() => {}); }, 3000);
+  // ---- 自動保存 ----
+  // 発言が増えるほど1回の保存が重くなるので、間隔を伸ばしていく
+  let saveTimer = null;
+  let lastSaveAt = 0;
+
+  function saveInterval() {
+    if (segments.length > 400) return 30000;
+    if (segments.length > 150) return 15000;
+    return 5000;
+  }
+
+  function autosave() {
+    if (saveTimer) return;
+    const wait = Math.max(0, saveInterval() - (Date.now() - lastSaveAt));
+    saveTimer = setTimeout(() => { saveTimer = null; saveNow(); }, wait);
+  }
+
+  function saveNow() {
+    lastSaveAt = Date.now();
+    persist().catch(() => { /* 次の保存で取り返す */ });
+  }
+
+  function cancelAutosave() {
+    clearTimeout(saveTimer);
+    saveTimer = null;
+  }
 
   async function back() {
     if (state === 'recording' || state === 'paused') {
@@ -264,15 +351,37 @@ export async function renderRecord(root, draftId) {
   }
 
   // ---- 表示の更新 ----
-  function paintSegment(seg) {
-    const s = loadSettings();
-    const text = formatSegmentText(seg.text, s.lineLen);
-    if (!text) return;
-    const node = el('p', { class: 'utt' },
-      s.timestamps ? el('span', { class: 'utt-time' }, fmtClock(seg.t)) : null,
+  function uttNode(seg) {
+    const text = formatSegmentText(seg.text, settings.lineLen, {
+      terms: settings.terms, fillers: settings.fillers
+    });
+    if (!text) return null;
+    const uncertain = settings.markUncertain && seg.c != null && seg.c > 0 && seg.c < LOW_CONFIDENCE;
+    return el('p', { class: `utt ${uncertain || seg.r ? 'is-uncertain' : ''}` },
+      settings.timestamps ? el('span', { class: 'utt-time' }, fmtClock(seg.t)) : null,
       el('span', { class: 'utt-text' }, text)
     );
+  }
+
+  function paintSegment(seg) {
+    const node = uttNode(seg);
+    if (!node) return;
     transcript.append(node);
+    // 古い行は画面から外す(データは残る)
+    while (transcript.childElementCount > MAX_VISIBLE) {
+      transcript.firstElementChild.remove();
+      trimmedCount++;
+    }
+    if (trimmedCount) hint.textContent = `※ 画面には直近の発言のみ表示しています(全${segments.length}件は保存済み)`;
+    hint.style.display = trimmedCount ? '' : 'none';
+    scrollToEnd();
+  }
+
+  function repaintLast(seg) {
+    const node = uttNode(seg);
+    if (!node) return;
+    if (transcript.lastElementChild) transcript.lastElementChild.replaceWith(node);
+    else transcript.append(node);
     scrollToEnd();
   }
 
@@ -284,6 +393,7 @@ export async function renderRecord(root, draftId) {
   }
 
   function updateHint() {
+    if (trimmedCount) return;
     hint.style.display = segments.length ? 'none' : '';
   }
 
@@ -349,6 +459,45 @@ export async function renderRecord(root, draftId) {
     levelBar.style.width = '0%';
   }
 
+  // 入力音量を見て、拾えていないときに置き方を案内する
+  function startMicCheck() {
+    stopMicCheck();
+    if (!recorderActive) return;
+    recorder.takeStats();
+    micCheckId = setInterval(() => {
+      if (state !== 'recording') return;
+      const stats = recorder.takeStats();
+      if (!stats || stats.samples < 30) return;
+      if (stats.clipRatio > 0.2) {
+        setMicTip('音が大きすぎます。端末を話者から少し離してください');
+      } else if (stats.avgPeak < 0.035) {
+        setMicTip(settings.micMode === 'far'
+          ? '音が小さいようです。端末を話者に近づけてください'
+          : '音が小さいようです。設定の「マイクの拾い方」を「遠くの声」にすると改善することがあります');
+      } else {
+        setMicTip('');
+      }
+    }, MIC_CHECK_MS);
+  }
+
+  function stopMicCheck() {
+    clearInterval(micCheckId);
+    micCheckId = null;
+  }
+
+  function setMicTip(text) {
+    micTip.textContent = text;
+    micTip.classList.toggle('is-on', Boolean(text));
+  }
+
+  async function warnIfStorageTight() {
+    const est = await storageEstimate();
+    if (!est?.quota) return;
+    if (est.usage / est.quota > 0.9) {
+      toast('端末の保存領域が少なくなっています。古い議事録の削除をおすすめします', { error: true });
+    }
+  }
+
   // 手入力で発言を足す(認識できなかった部分の補完・未対応ブラウザ用)
   function addTextSheet() {
     const ta = el('textarea', { class: 'textarea', rows: 5, placeholder: '発言や補足を入力' });
@@ -399,6 +548,7 @@ export async function renderRecord(root, draftId) {
     window.removeEventListener('beforeunload', onBeforeUnload);
     stopTimer();
     stopMeter();
+    stopMicCheck();
     recognizer.stop();
     wakeLock.release();
     if (!saved && (state === 'recording' || state === 'paused' || segments.length)) {

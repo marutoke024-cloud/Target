@@ -71,6 +71,24 @@ function metaLines(minute) {
   return lines.join('\n');
 }
 
+// 認識の確信度が低かった発言を、他の候補つきで書き出す。
+// Claude が文脈から正しい方を選べるようにするための材料
+const LOW_CONFIDENCE = 0.6;
+const MAX_UNCERTAIN = 15;
+
+function uncertainLines(minute) {
+  const rows = (minute.segments || [])
+    .filter((seg) => seg.alts?.length && seg.c != null && seg.c > 0 && seg.c < LOW_CONFIDENCE)
+    .slice(0, MAX_UNCERTAIN)
+    .map((seg) => `- 「${seg.text}」… 他の候補: ${seg.alts.map((a) => `「${a}」`).join(' ')}`);
+  if (!rows.length) return null;
+  return [
+    '## 聞き取りがあやしい箇所',
+    '認識の確信度が低かった発言です。文脈に合うほうを選んで解釈してください。',
+    ...rows
+  ].join('\n');
+}
+
 // Claude に投げるプロンプト全文
 export function buildPrompt(minute, templateId = 'minutes', extra = '') {
   const tpl = templateById(templateId);
@@ -96,6 +114,8 @@ export function buildPrompt(minute, templateId = 'minutes', extra = '') {
     parts.push('', '## 追加の指示', extra.trim());
   }
   parts.push('', '## 文字起こし本文', '```', minute.body || '(本文なし)', '```');
+  const uncertain = uncertainLines(minute);
+  if (uncertain) parts.push('', uncertain);
   return parts.join('\n');
 }
 
