@@ -587,6 +587,16 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .trouble.is-fatal { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
 .trouble .link-btn { margin-left: auto; color: inherit; text-decoration: underline; }
 
+.test-heard { display: flex; flex-direction: column; gap: 4px; }
+.test-line {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
 .diag {
   margin: 0;
   padding: 12px;
