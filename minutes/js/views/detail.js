@@ -178,8 +178,28 @@ export async function renderDetail(root, id) {
           downloadFile(`${name}.txt`, body.value);
           closeSheet();
         }),
+        // 録音を他アプリへ直接渡す。文字起こしアプリやメモアプリに送って変換できる
+        minute.hasAudio ? sheetAction('audioshare', 'share', '録音を他アプリに送る',
+          '文字起こしアプリやドライブなどに、音声をそのまま渡せます', async () => {
+            const rec = await getAudio(minute.id);
+            if (!rec?.blob) { toast('音声が見つかりませんでした', { error: true }); return; }
+            const file = new File([rec.blob], `${name}.${audioExt(minute.audioMime || rec.type)}`,
+              { type: rec.blob.type || 'audio/webm' });
+            if (navigator.canShare?.({ files: [file] })) {
+              try {
+                await navigator.share({ files: [file], title: minute.title || '録音' });
+                closeSheet();
+                return;
+              } catch { /* 共有をやめた場合は下のダウンロードにも進まない */ }
+              return;
+            }
+            // 共有に対応していない場合はダウンロードで取り出す
+            downloadBlob(file.name, rec.blob);
+            toast('音声を書き出しました');
+            closeSheet();
+          }) : null,
         minute.hasAudio ? sheetAction('audio', 'wave', '録音した音声 (' + audioExt(minute.audioMime) + ')',
-          '文字起こしができなかったときに、音声そのものを取り出せます', async () => {
+          '音声ファイルとして端末に保存します', async () => {
             const rec = await getAudio(minute.id);
             if (!rec?.blob) { toast('音声が見つかりませんでした', { error: true }); return; }
             downloadBlob(`${name}.${audioExt(minute.audioMime || rec.type)}`, rec.blob);
