@@ -85,7 +85,9 @@ export async function renderDetail(root, id) {
               icon('reformat', { size: 16 }), el('span', {}, '改行を整える'))
           )
         ),
-        el('p', { class: 'field-help' }, 'そのまま編集できます。誤変換の修正や、不要な発言の削除もここで。'),
+        el('p', { class: 'field-help' }, minute.body
+          ? 'そのまま編集できます。誤変換の修正や、不要な発言の削除もここで。'
+          : '録音を聞きながらここに書き起こせます。書き終えたら「Claudeでレポート」へ。'),
         body
       )
     ),
@@ -300,12 +302,38 @@ export async function renderDetail(root, id) {
     const rec = await getAudio(minute.id);
     if (!rec?.blob) return;
     audioUrl = URL.createObjectURL(rec.blob);
+    const player = el('audio', { controls: true, src: audioUrl, preload: 'metadata', class: 'audio-player' });
+
+    // 聞き返しながら書き起こすための操作(早送り・巻き戻し・再生速度)
+    const skip = (sec) => () => {
+      player.currentTime = Math.max(0, Math.min(player.duration || Infinity, player.currentTime + sec));
+    };
+    const speeds = [0.75, 1, 1.25, 1.5, 2];
+    const speedRow = el('div', { class: 'seg speed-seg' });
+    speeds.forEach((v) => {
+      const b = el('button', {
+        class: `seg-btn ${v === 1 ? 'is-on' : ''}`,
+        type: 'button',
+        onclick: () => {
+          player.playbackRate = v;
+          speedRow.querySelectorAll('.seg-btn').forEach((x) => x.classList.remove('is-on'));
+          b.classList.add('is-on');
+        }
+      }, `${v}x`);
+      speedRow.append(b);
+    });
+
     audioBox.append(
       el('div', { class: 'audio-head' },
         el('span', { class: 'audio-label' }, icon('wave', { size: 15 }), el('span', {}, '録音')),
         el('span', { class: 'audio-size' }, fmtBytes(rec.size || rec.blob.size))
       ),
-      el('audio', { controls: true, src: audioUrl, preload: 'metadata', class: 'audio-player' })
+      player,
+      el('div', { class: 'audio-controls' },
+        el('button', { class: 'btn btn-ghost', type: 'button', onclick: skip(-15) }, '⟲ 15秒'),
+        el('button', { class: 'btn btn-ghost', type: 'button', onclick: skip(15) }, '15秒 ⟳'),
+        speedRow
+      )
     );
   }
   paintAudio();

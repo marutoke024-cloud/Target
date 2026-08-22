@@ -31,7 +31,7 @@ export async function renderList(root) {
     el('header', { class: 'appbar' },
       el('div', { class: 'appbar-main' },
         el('h1', { class: 'appbar-title' }, '議事録'),
-        el('p', { class: 'appbar-desc' }, '録音して、文字起こしして、Claudeへ')
+        el('p', { class: 'appbar-desc' }, '録音して、まとめて、Claudeへ')
       ),
       el('button', { class: 'icon-btn', type: 'button', 'aria-label': '設定', onclick: openSettings }, icon('settings'))
     ),
@@ -81,12 +81,12 @@ function card(m) {
 function emptyState() {
   return el('div', { class: 'empty' },
     el('div', { class: 'empty-icon' }, icon('mic', { size: 30 })),
-    el('h2', {}, 'まだ議事録がありません'),
-    el('p', {}, '下の「録音を開始」を押すと、話した内容がその場で文字になります。'),
+    el('h2', {}, 'まだ記録がありません'),
+    el('p', {}, '下の「録音を開始」を押すと、会議や講演をそのまま録音できます。'),
     el('ul', { class: 'empty-tips' },
-      el('li', {}, 'マイクは端末に近いほど精度が上がります'),
-      el('li', {}, '文字起こしはあとから自由に編集できます'),
-      el('li', {}, '完成した議事録はワンタップで Claude に渡せます')
+      el('li', {}, '録音中に気づいたことは「メモ」で時刻つきに残せます'),
+      el('li', {}, 'あとから本文を書いて、そのまま Claude に渡せます'),
+      el('li', {}, 'ライブ文字起こしは設定から試せます(端末により可否あり)')
     )
   );
 }
@@ -99,10 +99,10 @@ function emptySearch(keyword) {
 }
 
 function supportNotice() {
-  if (isRecognitionSupported) return null;
+  if (isRecordingSupported) return null;
   return el('div', { class: 'notice notice-warn' },
-    el('strong', {}, 'このブラウザは音声認識に未対応です'),
-    el('span', {}, 'Android は Chrome、iPhone は Safari でお試しください。手入力での議事録作成は可能です。')
+    el('strong', {}, 'このブラウザは録音に対応していません'),
+    el('span', {}, 'Android は Chrome、iPhone は Safari でお試しください。メモの手入力はできます。')
   );
 }
 
@@ -140,7 +140,7 @@ async function openSettings() {
         segmented(THEMES, loadTheme(), (opt) => { saveTheme(opt.value); })
       ),
 
-      el('h3', { class: 'sheet-section' }, '聞き取りの精度'),
+      el('h3', { class: 'sheet-section' }, '録音'),
       el('div', { class: 'field' },
         el('label', { class: 'field-label' }, 'マイクの拾い方'),
         micHelp,
@@ -150,16 +150,19 @@ async function openSettings() {
           toast(`マイクを「${opt.label}」に設定しました`);
         })
       ),
+
+      el('h3', { class: 'sheet-section' }, '文字起こし(試験中)'),
+      el('p', { class: 'field-help' }, 'このアプリの本体は録音です。ライブ文字起こしは端末によって動かないため、まず下のテストで確かめてください。'),
       sheetLink('文字起こしをテストする', '10秒話しかけて、この端末で認識が動くか確かめます', 'mic',
         () => openSelfTest()),
+      toggle('録音中にライブ文字起こしを試す', '動く端末では録音と同時に文字にします。動かなくても録音は止まりません', s.liveTranscript,
+        (v) => saveSettings({ liveTranscript: v }), !isRecognitionSupported),
       sheetLink('用語辞書', '固有名詞や専門用語の聞き間違いを自動で直します', 'text',
         () => openTerms(), `${s.terms.length}件`),
       toggle('フィラーを取り除く', '「えー」「あのー」などの言いよどみを本文から省きます', s.fillers,
         (v) => saveSettings({ fillers: v })),
-      toggle('自信のない認識に印をつける', '録音中、聞き取りがあやしい発言を薄く表示します', s.markUncertain,
-        (v) => saveSettings({ markUncertain: v })),
 
-      el('h3', { class: 'sheet-section' }, '本文と録音'),
+      el('h3', { class: 'sheet-section' }, '本文の見た目'),
       el('div', { class: 'field' },
         el('label', { class: 'field-label' }, '1行の長さ'),
         el('p', { class: 'field-help' }, '句点・読点のタイミングで、この文字数を目安に改行します'),
@@ -170,17 +173,12 @@ async function openSettings() {
       ),
       toggle('タイムスタンプを入れる', '発言のまとまりごとに [12:34] を挿入します', s.timestamps,
         (v) => saveSettings({ timestamps: v })),
-      toggle('音声も保存する', s.audioBlocked
-        ? 'この端末では録音中に文字起こしができないため、自動でオフにしました'
-        : '音声を端末内に残します。ただし多くの端末はマイクを同時に使えず、文字起こしが止まることがあります',
-      s.saveAudio && !s.audioBlocked,
-      (v) => saveSettings({ saveAudio: v, audioBlocked: v ? false : s.audioBlocked }),
-      !isRecordingSupported),
-      toggle('録音中は画面を消さない', '長い会議でも画面ロックで認識が止まりにくくなります', s.keepAwake,
+      toggle('録音中は画面を消さない', '長い会議でも画面ロックがかからなくなります', s.keepAwake,
         (v) => saveSettings({ keepAwake: v })),
 
       el('div', { class: 'sheet-note' },
         el('p', {}, '録音時間に上限はありません。端末の保存領域が続くかぎり記録できます。'),
+        el('p', {}, '音声ファイルは詳細画面の「書き出し」から取り出せます。'),
         el('p', {}, est
           ? `端末の使用量: ${fmtBytes(est.usage)}${est.quota ? ` / 約${fmtBytes(est.quota)}` : ''}`
           : '議事録と音声は、すべてこの端末の中だけに保存されます'),

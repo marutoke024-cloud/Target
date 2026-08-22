@@ -644,6 +644,25 @@ button { cursor: pointer; -webkit-tap-highlight-color: transparent; }
   color: var(--accent);
   opacity: .85;
 }
+.utt.is-note {
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--accent-soft);
+}
+.utt.is-note .utt-time { color: var(--accent); }
+
+.audio-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.audio-controls .btn { min-height: 38px; padding: 0 12px; font-size: 12.5px; }
+.speed-seg { margin-left: auto; padding: 2px; }
+.speed-seg .seg-btn { min-width: 40px; padding: 5px 7px; font-size: 12px; }
+
 .utt.is-uncertain .utt-text {
   color: var(--text-mid);
   text-decoration: underline dotted var(--accent-line);

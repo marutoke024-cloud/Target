@@ -59,7 +59,7 @@ export function createRecorder() {
     }
     setupMeter(stream);
     const mimeType = pickMime();
-    recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 64000 } : undefined);
+    recorder = new MediaRecorder(stream, mimeType ? { mimeType, audioBitsPerSecond: 128000 } : undefined);
     chunks = [];
     recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
     recorder.start(4000); // 4秒ごとに小分けして受け取る(長時間でも取りこぼしにくい)
